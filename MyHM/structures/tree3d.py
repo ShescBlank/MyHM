@@ -1,5 +1,5 @@
 import numpy as _np
-from MyHM.structures.octree import Node
+from MyHM.structures.octree import Node, Octree
 from MyHM.structures.utils import admissibility
 
 # Tree 3D:
@@ -27,13 +27,16 @@ class Node3D:
         self.vector_segment = None # Type: _np.array
 
 class Tree3D:
-    def __init__(self, octree_root: Node, max_depth: int = 4):
-        assert max_depth > 0, "max_depth parameter must be greater than 0"
-        self.root = Node3D(parent=None, node1=octree_root, node2=octree_root, level=0, adm=False, leaf=False)
-        self.max_depth = max_depth
-        self.number_of_adm_nodes = 0
-        self.number_of_nodes = 0
-        self.number_of_leaves = 0
+    def __init__(self, octree: Octree):
+        self.root = Node3D(parent=None, node1=octree.root, node2=octree.root, level=0, adm=False, leaf=False)
+        self.max_depth = octree.max_depth
+        self.min_block_size = octree.min_block_size
+        self.stats = {
+            "number_of_nodes": 1,
+            "number_of_leaves": 0,
+            "number_of_not_adm_leaves": 0,
+            "number_of_adm_leaves": 0,
+        }
 
     def generate_adm_tree(self, adm_fun=admissibility):
         nodes_3d_to_add = [self.root]
@@ -52,18 +55,26 @@ class Tree3D:
                     adm = adm_fun(child1.bbox, child2.bbox)
                     new_node_3d = Node3D(parent=node_3d, node1=child1, node2=child2, level=child1.level, adm=adm, leaf=adm)
                     node_3d.children[i,j] = new_node_3d
-                    # If admissible, we stop constructing the branch.
+                    # If admissible, stop constructing the branch.
                     # If not admissible, add to the stack (only if max_depth is not yet reached):
-                    if adm:
-                        self.number_of_adm_nodes += 1
-                        self.number_of_leaves += 1
+                    # TODO: Review this if statement when min_block_size is implemented
+                    # If minimum size is not met, stop constructing the branch 
+                    if len(child1.points) < self.min_block_size or len(child2.points) < self.min_block_size:
+                        new_node_3d.adm = False
+                        new_node_3d.leaf = True
+                        self.stats["number_of_leaves"] += 1
+                        self.stats["number_of_not_adm_leaves"] += 1
+                    elif adm:
+                        self.stats["number_of_leaves"] += 1
+                        self.stats["number_of_adm_leaves"] += 1
                     else:
                         if new_node_3d.level < self.max_depth:
                             nodes_3d_to_add.append(new_node_3d)
                         elif new_node_3d.level == self.max_depth:
                             new_node_3d.leaf = True
-                            self.number_of_leaves += 1
-                    self.number_of_nodes += 1
+                            self.stats["number_of_leaves"] += 1
+                            self.stats["number_of_not_adm_leaves"] += 1
+                    self.stats["number_of_nodes"] += 1
 
     # New:
     def add_matrix(self, A):

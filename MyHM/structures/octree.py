@@ -25,13 +25,14 @@ class Node:
 
 
 class Octree:
-    def __init__(self, points: _np.ndarray, dof_indices: list, bbox: _np.ndarray, max_depth=4):
-        # TODO: Add min_size parameter
+    def __init__(self, points: _np.ndarray, dof_indices: list, bbox: _np.ndarray, max_depth=4, min_block_size=2):
+        # TODO: Add min_size to the generation of the tree
         assert max_depth > 0, "max_depth parameter must be greater than 0"
         self.root = Node(parent=None, id="0", level=0, bbox=bbox)
         self.root.points = list(points)
         self.root.dof_indices = dof_indices
         self.max_depth = max_depth
+        self.min_block_size = min_block_size
 
     def generate_tree(self):
         # Hacer versión iterativa o recursiva
