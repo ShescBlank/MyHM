@@ -3,12 +3,14 @@ from MyHM.assembly.numba_kernels import select_numba_assembly_partial
 from MyHM.assembly.utils import get_elements_from_vertices, sort_partial_elements_by_color, create_fun_index_dicts, create_partial_dofs
 
 def partial_dense_assembler(
-    operator_descriptor, domain, dual_to_range, parameters, result, rows=[], cols=[]
+    operator_descriptor, domain, dual_to_range, parameters, rows, cols, dtype=_np.complex128
 ):  
     """Numba based partial dense assembler."""
     from bempp.core.numba_kernels import select_numba_kernels
     from bempp.api.utils.helpers import get_type
     from bempp.api.integration.triangle_gauss import rule
+
+    result = _np.zeros((len(rows), len(cols)), dtype=dtype)
 
     (
         _,
@@ -86,6 +88,8 @@ def partial_dense_assembler(
             domain.shapeset.evaluate,
             result,
         )
+    
+    return result
 
 def singular_assembler_sparse(
     device_interface, operator_descriptor, domain, dual_to_range, parameters

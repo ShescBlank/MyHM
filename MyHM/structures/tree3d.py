@@ -91,8 +91,7 @@ class Tree3D:
                     nodes_3d_to_check.extend(node_3d.children[node_3d.children != None].flatten())
 
     # New
-    def add_matrix_with_ACA(self, A, epsilon=1e-3, verbose=False):
-        # TODO: add compression algorithm as parameter of function
+    def add_matrix_with_ACA(self, A, method, epsilon=1e-3, verbose=False):
         nodes_3d_to_check = [self.root]
         while nodes_3d_to_check:
             node_3d = nodes_3d_to_check.pop()
@@ -101,12 +100,46 @@ class Tree3D:
                 cols = node_3d.node2.dof_indices
                 mesh = _np.meshgrid(rows, cols, indexing="ij")
                 if node_3d.adm:
-                    node_3d.u_vectors, node_3d.v_vectors = ACAPP(A[mesh[0], mesh[1]], epsilon=epsilon, method=2, verbose=verbose)
+                    node_3d.u_vectors, node_3d.v_vectors = method(A[mesh[0], mesh[1]], epsilon=epsilon, verbose=verbose)
                 else:
                     node_3d.matrix_block = A[mesh[0], mesh[1]]
             else:
                 if node_3d.level < self.max_depth:
                     nodes_3d_to_check.extend(node_3d.children[node_3d.children != None].flatten())
+
+    def add_compressed_matrix(self, method, device_interface, boundary_operator, parameters, epsilon=1e-3, verbose=False):
+        from MyHM.assembly import partial_dense_assembler as pda
+        from MyHM.assembly import singular_assembler_sparse as sas 
+
+        from time import time as tm
+        time_adm = 0
+        time_nadm = 0
+        
+        # Obtain singular part:
+        singular_sm = sas(device_interface, boundary_operator.descriptor, boundary_operator.domain, boundary_operator.dual_to_range, parameters) 
+
+        # Traverse tree:
+        nodes_3d_to_check = [self.root]
+        while nodes_3d_to_check:
+            node_3d = nodes_3d_to_check.pop()
+            if node_3d.leaf:
+                rows = node_3d.node1.dof_indices
+                cols = node_3d.node2.dof_indices
+                meshgrid = _np.meshgrid(rows, cols, indexing="ij")
+                if node_3d.adm:
+                    t1 = tm()
+                    node_3d.u_vectors, node_3d.v_vectors = method(rows, cols, boundary_operator, parameters, epsilon=epsilon, verbose=verbose)
+                    time_adm += tm() - t1
+                else:
+                    t1 = tm()
+                    node_3d.matrix_block = pda(boundary_operator.descriptor, boundary_operator.domain, boundary_operator.dual_to_range, parameters, rows, cols)
+                    node_3d.matrix_block = _np.array(node_3d.matrix_block + singular_sm[meshgrid[0], meshgrid[1]])
+                    time_nadm += tm() - t1
+            else:
+                if node_3d.level < self.max_depth:
+                    nodes_3d_to_check.extend(node_3d.children[node_3d.children != None].flatten())
+        print(f"Tiempo adm: \t{time_adm}s")
+        print(f"Tiempo no adm: \t{time_nadm}s")
 
     # New:
     def get_matrix(self):

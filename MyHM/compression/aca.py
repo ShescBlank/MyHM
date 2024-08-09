@@ -63,6 +63,76 @@ def ACAPP(A, epsilon = 0.1, verbose=False):
     
     return _np.array(u_vectors), _np.array(v_vectors)
 
+def ACAPP_with_assembly(rows, cols, boundary_operator, parameters, epsilon = 0.1, verbose=False):
+    from MyHM.assembly import partial_dense_assembler as pda
+
+    m, n = len(rows), len(cols)
+    I = []
+    J = []
+    k = 0
+    i_star = 0
+
+    u_vectors = []
+    v_vectors = []
+
+    # Stopping criterion:
+    sum_uv_norm_square = 0
+    
+    while True:
+        aux = 0
+        if k > 0:
+            aux = _np.asarray(u_vectors)[:, i_star].T @ _np.asarray(v_vectors)
+        # >>>>>>>>>>>>
+        # R_row = R[i_star, :] - aux                               # Se necesita una fila de la matriz original
+        # ============
+        R_row = pda(boundary_operator.descriptor, boundary_operator.domain, boundary_operator.dual_to_range, parameters, [rows[i_star]], cols)
+        R_row = R_row.flatten()
+        R_row -= aux
+        # <<<<<<<<<<<<
+        j_star = _np.argmax(_np.abs(R_row))
+        delta = R_row[j_star]
+        if abs(delta) <= 1e-15: # Agregamos un pequeño margen (puede ser complejo)
+            if len(I) == min(m, n): # Para que no siga agregando en caso de ya tener todos los índices
+                # print("Not reached Epsilon")
+                break
+        else:
+            v = R_row / delta
+            aux = 0
+            if k>0:
+                aux = _np.asarray(v_vectors)[:, j_star].T @ _np.asarray(u_vectors)
+            # >>>>>>>>>>>>
+            # u = R[:, j_star] - aux                               # Se necesita una columna de la matriz original
+            # ============
+            u = pda(boundary_operator.descriptor, boundary_operator.domain, boundary_operator.dual_to_range, parameters, rows, [cols[j_star]])
+            u = u.flatten()
+            u -= aux
+            # <<<<<<<<<<<<
+            k += 1
+            u_vectors.append(u)
+            v_vectors.append(v)
+        I.append(i_star)
+        J.append(j_star)
+        u_copy = _np.copy(u_vectors[-1])
+        u_copy[I] = 0
+        i_star = _np.argmax(_np.abs(u_copy))
+
+        # Stopping criterion:
+        u = u_vectors[-1]
+        v = v_vectors[-1]
+        norm_u = _np.linalg.norm(u)
+        norm_v = _np.linalg.norm(v)
+        sum_uv_norm_square += norm_u**2 * norm_v**2
+        error_rel = norm_u * norm_v / _np.sqrt(sum_uv_norm_square)
+        if error_rel <= epsilon:
+            # print("Reached Epsilon")
+            break
+
+    if verbose:
+        print(f"Finished in k={k} out of {m}")
+        # print(f"Relative error between matrices: {_np.linalg.norm(A-_np.asarray(u_vectors).T @ _np.asarray(v_vectors)) / _np.linalg.norm(A)}")
+    
+    return _np.array(u_vectors), _np.array(v_vectors)
+
 
 if __name__ == "__main__":
     from scipy.linalg import hilbert
