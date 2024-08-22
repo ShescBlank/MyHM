@@ -35,8 +35,8 @@ def admissibility(bbox1, bbox2, max_element_diameter):
     dist = _np.min(cdist(vertex_bbox1, vertex_bbox2))
     # print(dist)
 
-    # return diam <= dist and 2*max_element_diameter < dist
-    return diam <= dist
+    return diam <= dist and 2*max_element_diameter < dist
+    # return diam <= dist
 
 class WrapperGridData():
     """

@@ -73,15 +73,15 @@ class Tree3D:
                     node_3d.children[i,j] = new_node_3d
                     # If admissible, stop constructing the branch.
                     # If not admissible, add to the stack (only if max_depth is not yet reached):
-                    # TODO: Review this if statement when min_block_size is implemented
+                    # TODO: Review this if statement when min_block_size is implemented (quité el if debido al cambio en la admisibilidad)
                     # If minimum size is not met, stop constructing the branch 
-                    if len(child1.points) < self.min_block_size or len(child2.points) < self.min_block_size:
-                        new_node_3d.adm = False
-                        new_node_3d.leaf = True
-                        self.nadm_leaves.append(new_node_3d)
-                        self.stats["number_of_leaves"] += 1
-                        self.stats["number_of_not_adm_leaves"] += 1
-                    elif adm:
+                    # if len(child1.points) < self.min_block_size or len(child2.points) < self.min_block_size:
+                    #     new_node_3d.adm = False
+                    #     new_node_3d.leaf = True
+                    #     self.nadm_leaves.append(new_node_3d)
+                    #     self.stats["number_of_leaves"] += 1
+                    #     self.stats["number_of_not_adm_leaves"] += 1
+                    if adm:
                         self.adm_leaves.append(new_node_3d)
                         self.stats["number_of_leaves"] += 1
                         self.stats["number_of_adm_leaves"] += 1
