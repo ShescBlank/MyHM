@@ -23,8 +23,10 @@ def ACAPP(A, epsilon = 0.1, verbose=False):
         if k > 0:
             aux = _np.asarray(u_vectors)[:, i_star].T @ _np.asarray(v_vectors)
         R_row = R[i_star, :] - aux                               # Se necesita una fila de la matriz original
-        j_star = _np.argmax(_np.abs(R_row))
-        delta = R_row[j_star]
+        R_row_copy = _np.copy(R_row)
+        R_row_copy[J] = 0
+        j_star = _np.argmax(_np.abs(R_row_copy))
+        delta = R_row_copy[j_star]
         if abs(delta) <= 1e-15: # Agregamos un pequeño margen (puede ser complejo)
             if len(I) == min(m, n): # Para que no siga agregando en caso de ya tener todos los índices
                 # print("Not reached Epsilon")
@@ -63,8 +65,9 @@ def ACAPP(A, epsilon = 0.1, verbose=False):
     
     return _np.array(u_vectors), _np.array(v_vectors)
 
-def ACAPP_with_assembly(rows, cols, boundary_operator, parameters, epsilon = 0.1, verbose=False):
+def ACAPP_with_assembly(rows, cols, boundary_operator, parameters, singular_matrix, epsilon = 0.1, verbose=False):
     from MyHM.assembly import partial_dense_assembler as pda
+    from time import time
 
     m, n = len(rows), len(cols)
     I = []
@@ -77,6 +80,9 @@ def ACAPP_with_assembly(rows, cols, boundary_operator, parameters, epsilon = 0.1
 
     # Stopping criterion:
     sum_uv_norm_square = 0
+
+    time_row = 0
+    time_col = 0
     
     while True:
         aux = 0
@@ -85,12 +91,20 @@ def ACAPP_with_assembly(rows, cols, boundary_operator, parameters, epsilon = 0.1
         # >>>>>>>>>>>>
         # R_row = R[i_star, :] - aux                               # Se necesita una fila de la matriz original
         # ============
+        t1 = time()
         R_row = pda(boundary_operator.descriptor, boundary_operator.domain, boundary_operator.dual_to_range, parameters, [rows[i_star]], cols)
+        time_row += time() - t1
+
+        meshgrid = _np.meshgrid(rows[i_star], cols, indexing="ij")
+        R_row = _np.array(R_row + singular_matrix[meshgrid[0], meshgrid[1]])
+
         R_row = R_row.flatten()
         R_row -= aux
         # <<<<<<<<<<<<
-        j_star = _np.argmax(_np.abs(R_row))
-        delta = R_row[j_star]
+        R_row_copy = _np.copy(R_row)
+        R_row_copy[J] = 0
+        j_star = _np.argmax(_np.abs(R_row_copy))
+        delta = R_row_copy[j_star]
         if abs(delta) <= 1e-15: # Agregamos un pequeño margen (puede ser complejo)
             if len(I) == min(m, n): # Para que no siga agregando en caso de ya tener todos los índices
                 # print("Not reached Epsilon")
@@ -103,7 +117,13 @@ def ACAPP_with_assembly(rows, cols, boundary_operator, parameters, epsilon = 0.1
             # >>>>>>>>>>>>
             # u = R[:, j_star] - aux                               # Se necesita una columna de la matriz original
             # ============
+            t1 = time()
             u = pda(boundary_operator.descriptor, boundary_operator.domain, boundary_operator.dual_to_range, parameters, rows, [cols[j_star]])
+            time_col += time() - t1
+
+            meshgrid = _np.meshgrid(rows, cols[j_star], indexing="ij")
+            u = _np.array(u + singular_matrix[meshgrid[0], meshgrid[1]])
+            
             u = u.flatten()
             u -= aux
             # <<<<<<<<<<<<
@@ -131,7 +151,7 @@ def ACAPP_with_assembly(rows, cols, boundary_operator, parameters, epsilon = 0.1
         print(f"Finished in k={k} out of {m}")
         # print(f"Relative error between matrices: {_np.linalg.norm(A-_np.asarray(u_vectors).T @ _np.asarray(v_vectors)) / _np.linalg.norm(A)}")
     
-    return _np.array(u_vectors), _np.array(v_vectors)
+    return _np.array(u_vectors), _np.array(v_vectors), time_row, time_col
 
 
 if __name__ == "__main__":

@@ -2,6 +2,19 @@ import numpy as _np
 from MyHM.structures.octree import Node, Octree
 from MyHM.structures.utils import admissibility
 
+def compress_node_mp(node_3d, method, boundary_operator, parameters, singular_sm, epsilon=1e-3, verbose=False):
+    from MyHM.assembly import partial_dense_assembler as pda
+    from MyHM.assembly import singular_assembler_sparse as sas 
+
+    rows = node_3d.node1.dof_indices
+    cols = node_3d.node2.dof_indices
+    meshgrid = _np.meshgrid(rows, cols, indexing="ij")
+    if node_3d.adm:
+        node_3d.u_vectors, node_3d.v_vectors, tr, tc = method(rows, cols, boundary_operator, parameters, singular_sm, epsilon=epsilon, verbose=verbose)
+    else:
+        node_3d.matrix_block = pda(boundary_operator.descriptor, boundary_operator.domain, boundary_operator.dual_to_range, parameters, rows, cols)
+        node_3d.matrix_block = _np.array(node_3d.matrix_block + singular_sm[meshgrid[0], meshgrid[1]])
+
 # Tree 3D:
 class Node3D:
     pass
@@ -31,6 +44,9 @@ class Tree3D:
         self.root = Node3D(parent=None, node1=octree.root, node2=octree.root, level=0, adm=False, leaf=False)
         self.max_depth = octree.max_depth
         self.min_block_size = octree.min_block_size
+        self.max_element_diameter = octree.max_element_diameter
+        self.adm_leaves = []
+        self.nadm_leaves = []
         self.stats = {
             "number_of_nodes": 1,
             "number_of_leaves": 0,
@@ -52,7 +68,7 @@ class Tree3D:
                 if not child1: continue
                 for j, child2 in enumerate(children2):
                     if not child2: continue
-                    adm = adm_fun(child1.bbox, child2.bbox)
+                    adm = adm_fun(child1.bbox, child2.bbox, self.max_element_diameter)
                     new_node_3d = Node3D(parent=node_3d, node1=child1, node2=child2, level=child1.level, adm=adm, leaf=adm)
                     node_3d.children[i,j] = new_node_3d
                     # If admissible, stop constructing the branch.
@@ -62,9 +78,11 @@ class Tree3D:
                     if len(child1.points) < self.min_block_size or len(child2.points) < self.min_block_size:
                         new_node_3d.adm = False
                         new_node_3d.leaf = True
+                        self.nadm_leaves.append(new_node_3d)
                         self.stats["number_of_leaves"] += 1
                         self.stats["number_of_not_adm_leaves"] += 1
                     elif adm:
+                        self.adm_leaves.append(new_node_3d)
                         self.stats["number_of_leaves"] += 1
                         self.stats["number_of_adm_leaves"] += 1
                     else:
@@ -72,6 +90,7 @@ class Tree3D:
                             nodes_3d_to_add.append(new_node_3d)
                         elif new_node_3d.level == self.max_depth:
                             new_node_3d.leaf = True
+                            self.nadm_leaves.append(new_node_3d)
                             self.stats["number_of_leaves"] += 1
                             self.stats["number_of_not_adm_leaves"] += 1
                     self.stats["number_of_nodes"] += 1
@@ -113,6 +132,8 @@ class Tree3D:
 
         from time import time as tm
         time_adm = 0
+        time_adm_row = 0
+        time_adm_col = 0
         time_nadm = 0
         
         # Obtain singular part:
@@ -128,9 +149,12 @@ class Tree3D:
                 meshgrid = _np.meshgrid(rows, cols, indexing="ij")
                 if node_3d.adm:
                     t1 = tm()
-                    node_3d.u_vectors, node_3d.v_vectors = method(rows, cols, boundary_operator, parameters, epsilon=epsilon, verbose=verbose)
+                    node_3d.u_vectors, node_3d.v_vectors, tr, tc = method(rows, cols, boundary_operator, parameters, singular_sm, epsilon=epsilon, verbose=verbose)
                     time_adm += tm() - t1
+                    time_adm_row += tr
+                    time_adm_col += tc
                 else:
+                    # node_3d.matrix_block = _np.zeros((len(rows), len(cols)), dtype=_np.complex128)
                     t1 = tm()
                     node_3d.matrix_block = pda(boundary_operator.descriptor, boundary_operator.domain, boundary_operator.dual_to_range, parameters, rows, cols)
                     node_3d.matrix_block = _np.array(node_3d.matrix_block + singular_sm[meshgrid[0], meshgrid[1]])
@@ -139,7 +163,51 @@ class Tree3D:
                 if node_3d.level < self.max_depth:
                     nodes_3d_to_check.extend(node_3d.children[node_3d.children != None].flatten())
         print(f"Tiempo adm: \t{time_adm}s")
+        print(f"Tiempo adm row: \t{time_adm_row}s")
+        print(f"Tiempo adm col: \t{time_adm_col}s")
         print(f"Tiempo no adm: \t{time_nadm}s")
+
+    def add_compressed_matrix_mp(self, method, device_interface, boundary_operator, parameters, epsilon=1e-3, verbose=False):
+        from MyHM.assembly import singular_assembler_sparse as sas 
+        from MyHM.structures.utils import wrap_classes, unwrap_classes
+
+        from joblib import Parallel
+        from joblib import delayed
+
+        # from multiprocessing import Pool
+        # from itertools import repeat
+
+        # Obtain singular part:
+        singular_sm = sas(device_interface, boundary_operator.descriptor, boundary_operator.domain, boundary_operator.dual_to_range, parameters) 
+
+        # Wrap classes to pickle:
+        prev_grid_datas = wrap_classes(boundary_operator)
+        
+        # # Joblib:
+        parallel_compression = delayed(compress_node_mp)
+        parallel_tasks_adm = [parallel_compression(self.adm_leaves[i], method, boundary_operator, parameters, singular_sm, epsilon, verbose) for i in range(len(self.adm_leaves))]
+        parallel_tasks_nadm = [parallel_compression(self.nadm_leaves[i], method, boundary_operator, parameters, singular_sm, epsilon, verbose) for i in range(len(self.nadm_leaves))]
+        with Parallel(n_jobs=-1, verbose=10) as parallel_pool:
+            parallel_pool(parallel_tasks_adm)
+            parallel_pool(parallel_tasks_nadm)
+
+        # # Multiprocessing:
+        # pool = Pool(1)
+        # pool.starmap(
+        #     compress_node_mp,
+        #     zip(
+        #         self.adm_leaves,
+        #         repeat(method),
+        #         repeat(boundary_operator),
+        #         repeat(parameters),
+        #         repeat(singular_sm),
+        #         repeat(epsilon),
+        #         repeat(verbose),
+        #     ),
+        # )
+
+        # Unwrap classes:
+        unwrap_classes(prev_grid_datas)
 
     # New:
     def get_matrix(self):
@@ -154,6 +222,27 @@ class Tree3D:
                 cols = node_3d.node2.dof_indices
                 mesh = _np.meshgrid(rows, cols, indexing="ij")
                 A[mesh[0], mesh[1]] = node_3d.matrix_block
+            else:
+                if node_3d.level < self.max_depth:
+                    nodes_3d_to_check.extend(node_3d.children[node_3d.children != None].flatten())
+        return A
+
+    def get_matrix_from_compression(self, dtype=_np.complex128):
+        m = len(self.root.node1.points)
+        n = len(self.root.node2.points)
+        A = _np.zeros((m, n), dtype=dtype)
+        nodes_3d_to_check = [self.root]
+        while nodes_3d_to_check:
+            node_3d = nodes_3d_to_check.pop()
+            if node_3d.leaf:
+                rows = node_3d.node1.dof_indices
+                cols = node_3d.node2.dof_indices
+                mesh = _np.meshgrid(rows, cols, indexing="ij")
+
+                if not node_3d.adm:
+                    A[mesh[0], mesh[1]] = node_3d.matrix_block
+                else:
+                    A[mesh[0], mesh[1]] = _np.asarray(node_3d.u_vectors).T @ _np.asarray(node_3d.v_vectors)
             else:
                 if node_3d.level < self.max_depth:
                     nodes_3d_to_check.extend(node_3d.children[node_3d.children != None].flatten())
@@ -220,8 +309,24 @@ class Tree3D:
         return result_vector
 
     def check_valid_tree(self, node_3d):
-        # Se me ocurre hacer
+        # Se me ocurre quizás, cuando ya tenga hechas las listas de hojas (admisibles y no admisibles), 
+        # chequear que efectivamente estén todas las hojas del árbol en las listas.
         pass
+
+    def check_singular_adm_leaves(self, device_interface, boundary_operator, parameters):
+        from MyHM.assembly import singular_assembler_sparse as sas 
+        
+        # Obtain singular part:
+        singular_sm = sas(device_interface, boundary_operator.descriptor, boundary_operator.domain, boundary_operator.dual_to_range, parameters) 
+
+        for node_3d in self.adm_leaves:
+            rows = node_3d.node1.dof_indices
+            cols = node_3d.node2.dof_indices
+            meshgrid = _np.meshgrid(rows, cols, indexing="ij")
+            if singular_sm[meshgrid[0], meshgrid[1]].nnz != 0:
+                return True
+        return False
+
 
     # New
     def calculate_compressed_matrix_storage(self, size_dtype):
@@ -271,6 +376,80 @@ class Tree3D:
         for child in node_3d.children.flatten():
             if child:
                 self.print_tree_with_matrix(child, file)
+
+    def histogram(self):
+        import matplotlib.pyplot as plt
+
+        import seaborn as sns
+        import pandas as pd
+
+        block_sizes = []
+        block_ranks = []
+        block_levels = []
+        nodes_3d_to_check = [self.root]
+        while nodes_3d_to_check:
+            node_3d = nodes_3d_to_check.pop()
+            if node_3d.leaf and node_3d.adm:
+                block_sizes.append(
+                    min(len(node_3d.node1.dof_indices), len(node_3d.node2.dof_indices))
+                )
+                block_ranks.append(node_3d.u_vectors.shape[0])
+                block_levels.append(node_3d.level)
+            else:
+                if node_3d.level < self.max_depth:
+                    nodes_3d_to_check.extend(node_3d.children[node_3d.children != None].flatten())
+
+        df = pd.DataFrame({"Size": block_sizes, "Rank": block_ranks, "Ratio": _np.asarray(block_ranks)/_np.asarray(block_sizes), "Level": block_levels})
+        sns.pairplot(df, hue="Level", diag_kind="hist", diag_kws=dict(hue=None),
+                    #  x_vars=["Size", "Rank", "Ratio", "Level"],
+                    #  y_vars=["Size", "Rank", "Ratio", "Level"],
+        )
+        plt.show()
+
+
+    def imshow(self):
+        import matplotlib.pyplot as plt
+
+        m = len(self.root.node1.points)
+        n = len(self.root.node2.points)
+        A = _np.zeros((m, n), dtype=float)
+        sorted_rows = []
+        sorted_cols = []
+
+        nodes_3d_to_check = [self.root]
+        while nodes_3d_to_check:
+            node_3d = nodes_3d_to_check.pop(0)
+            if node_3d.leaf:
+                rows = node_3d.node1.dof_indices
+                cols = node_3d.node2.dof_indices
+                mesh = _np.meshgrid(rows, cols, indexing="ij")
+
+                for i in rows:
+                    if i not in sorted_rows:
+                        sorted_rows.append(i)
+                for i in cols:
+                    if i not in sorted_cols:
+                        sorted_cols.append(i)
+
+                if node_3d.adm:
+                    size = max(len(node_3d.node1.dof_indices), len(node_3d.node2.dof_indices))
+                    rank = node_3d.u_vectors.shape[0]
+                    A[mesh[0], mesh[1]] = rank / size
+                else:
+                    A[mesh[0], mesh[1]] = 1.0
+            else:
+                if node_3d.level < self.max_depth:
+                    nodes_3d_to_check.extend(node_3d.children[node_3d.children != None].flatten())
+
+        plt.imshow(A, cmap="Blues", vmin=0.0, vmax=1.0)
+        plt.title("Image of compression")
+        plt.colorbar()
+        plt.show()
+
+        plt.imshow(A[:, sorted_cols][sorted_rows, :], cmap="Blues", vmin=0.0, vmax=1.0)
+        plt.title("Image of compression (sorted)")
+        plt.colorbar()
+        plt.show()
 
     def plot_node_adm(self, target_node, points):
         assert target_node != None, "Node is Null"

@@ -29,17 +29,13 @@ def partial_dense_assembler(
     data_type = get_type(precision).real
 
     # Get indices from elements associated to rows and cols vertices:
-    if len(rows) > 0:
-        target_elements = get_elements_from_vertices(dual_to_range.grid, rows)
-        test_indices, test_color_indexptr = sort_partial_elements_by_color(dual_to_range, target_elements)
-    else:
-        test_indices, test_color_indexptr = dual_to_range.get_elements_by_color()
+    target_elements = get_elements_from_vertices(dual_to_range.grid, rows)
+    test_indices, test_color_indexptr = sort_partial_elements_by_color(dual_to_range, target_elements)
+    # test_indices, test_color_indexptr = dual_to_range.get_elements_by_color()
 
-    if len(cols) > 0:
-        target_elements = get_elements_from_vertices(domain.grid, cols)
-        trial_indices, trial_color_indexptr = sort_partial_elements_by_color(domain, target_elements)
-    else:
-        trial_indices, trial_color_indexptr = domain.get_elements_by_color()
+    target_elements = get_elements_from_vertices(domain.grid, cols)
+    trial_indices, trial_color_indexptr = sort_partial_elements_by_color(domain, target_elements)
+    # trial_indices, trial_color_indexptr = domain.get_elements_by_color()
     
     number_of_test_colors = len(test_color_indexptr) - 1
 
@@ -61,8 +57,8 @@ def partial_dense_assembler(
     for test_color_index in range(number_of_test_colors):
         # print(numba_assembly_function_regular.__name__)
         numba_assembly_function_regular(
-            dual_to_range.grid.data(precision),
-            domain.grid.data(precision),
+            dual_to_range.grid.data(precision), #.data en mp
+            domain.grid.data(precision), #.data en mp
             nshape_test,
             nshape_trial,
             test_indices[
