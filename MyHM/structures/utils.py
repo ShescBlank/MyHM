@@ -35,7 +35,9 @@ def admissibility(bbox1, bbox2, max_element_diameter):
     dist = _np.min(cdist(vertex_bbox1, vertex_bbox2))
     # print(dist)
 
-    return diam <= dist and 2*max_element_diameter < dist
+    # La razón del factor 2 es que con un max_element_diameter de distancia entre dos bloques todavía puede haber aristas adjacentes,
+    # lo que se traduce en interacción singular. Luego, nos aseguramos de que esto no ocurra con un factor 2.
+    return diam <= dist and 2*max_element_diameter < dist # A partir de 1.6 obtuve ya no más hojas admisibles singulares
     # return diam <= dist
 
 class WrapperGridData():

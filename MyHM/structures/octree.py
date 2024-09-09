@@ -25,18 +25,23 @@ class Node:
 
 
 class Octree:
-    def __init__(self, points: _np.ndarray, dof_indices: list, bbox: _np.ndarray, max_element_diameter: _np.float64, max_depth=4, min_block_size=2):
+    def __init__(self, points: _np.ndarray, dof_indices: list, bbox: _np.ndarray, max_element_diameter: _np.float64, max_depth=None, min_block_size=2):
         # TODO: Add min_size to the generation of the tree
-        assert max_depth > 0, "max_depth parameter must be greater than 0"
+        # TODO: Añadir la posibilidad de no particionar la malla en todas las dimensiones (por ejemplo: se tiene una malla muy alargada
+        # en algún eje y, por ende, solo se particiona en dicho eje y el resto se mantiene igual (notar que no es necesario disminuir 
+        # la cantidad de hijos, se pueden dejar vacíos no más y así no cambia la estructura del árbol))
         self.root = Node(parent=None, id="0", level=0, bbox=bbox)
         self.root.points = list(points)
         self.root.dof_indices = dof_indices
-        self.max_depth = max_depth
+        if max_depth:
+            self.max_depth =int(max_depth)
+        else:
+            min_length = _np.min(_np.abs(bbox[:,1] - bbox[:,0]))
+            self.max_depth = int(_np.ceil(_np.log2(min_length/(2*max_element_diameter)))) # Para ser más precisos, debería ser floor
         self.min_block_size = min_block_size
         self.max_element_diameter = max_element_diameter
 
     def generate_tree(self):
-        # Hacer versión iterativa o recursiva
         nodes_to_add = [self.root]
 
         while nodes_to_add:
