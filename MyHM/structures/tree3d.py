@@ -1,4 +1,5 @@
 import numpy as _np
+from time import time
 from MyHM.structures.octree import Node, Octree
 from MyHM.structures.utils import admissibility
 
@@ -10,7 +11,7 @@ def compress_node_mp(node_3d, method, boundary_operator, parameters, singular_sm
     cols = node_3d.node2.dof_indices
     meshgrid = _np.meshgrid(rows, cols, indexing="ij")
     if node_3d.adm:
-        node_3d.u_vectors, node_3d.v_vectors, tr, tc = method(rows, cols, boundary_operator, parameters, singular_sm, epsilon=epsilon, verbose=verbose)
+        node_3d.u_vectors, node_3d.v_vectors = method(rows, cols, boundary_operator, parameters, singular_sm, epsilon=epsilon, verbose=verbose)
     else:
         node_3d.matrix_block = pda(boundary_operator.descriptor, boundary_operator.domain, boundary_operator.dual_to_range, parameters, rows, cols)
         node_3d.matrix_block = _np.array(node_3d.matrix_block + singular_sm[meshgrid[0], meshgrid[1]])
@@ -38,6 +39,12 @@ class Node3D:
         self.u_vectors = None      # Type: _np.array
         self.v_vectors = None      # Type: _np.array
         self.vector_segment = None # Type: _np.array
+        self.stats = {
+            "compression_storage": 0,
+            "full_storage": 0,
+            "compression_time": 0,
+            "matvec_time": 0,
+        }
 
 class Tree3D:
     def __init__(self, octree: Octree):
@@ -97,6 +104,9 @@ class Tree3D:
 
     # New:
     def add_matrix(self, A):
+        """
+        Adds the uncompressed matrix from the full matrix
+        """
         nodes_3d_to_check = [self.root]
         while nodes_3d_to_check:
             node_3d = nodes_3d_to_check.pop()
@@ -111,6 +121,9 @@ class Tree3D:
 
     # New
     def add_matrix_with_ACA(self, A, method, epsilon=1e-3, verbose=False):
+        """
+        Adds the compressed matrix from the full matrix
+        """
         nodes_3d_to_check = [self.root]
         while nodes_3d_to_check:
             node_3d = nodes_3d_to_check.pop()
@@ -119,7 +132,12 @@ class Tree3D:
                 cols = node_3d.node2.dof_indices
                 mesh = _np.meshgrid(rows, cols, indexing="ij")
                 if node_3d.adm:
+                    t0_compression = time()
                     node_3d.u_vectors, node_3d.v_vectors = method(A[mesh[0], mesh[1]], epsilon=epsilon, verbose=verbose)
+                    tf_compression = time()
+                    node_3d.stats["compression_time"] = tf_compression - t0_compression
+                    node_3d.stats["compression_storage"] = _np.prod(node_3d.u_vectors.shape) + _np.prod(node_3d.v_vectors.shape)
+                    node_3d.stats["full_storage"] = len(rows) * len(cols)
                 else:
                     node_3d.matrix_block = A[mesh[0], mesh[1]]
             else:
@@ -127,14 +145,11 @@ class Tree3D:
                     nodes_3d_to_check.extend(node_3d.children[node_3d.children != None].flatten())
 
     def add_compressed_matrix(self, method, device_interface, boundary_operator, parameters, epsilon=1e-3, verbose=False):
+        """
+        Adds the compressed matrix using a custom assembler (does not require the full matrix)
+        """
         from MyHM.assembly import partial_dense_assembler as pda
         from MyHM.assembly import singular_assembler_sparse as sas 
-
-        from time import time as tm
-        time_adm = 0
-        time_adm_row = 0
-        time_adm_col = 0
-        time_nadm = 0
         
         # Obtain singular part:
         singular_sm = sas(device_interface, boundary_operator.descriptor, boundary_operator.domain, boundary_operator.dual_to_range, parameters) 
@@ -148,24 +163,19 @@ class Tree3D:
                 cols = node_3d.node2.dof_indices
                 meshgrid = _np.meshgrid(rows, cols, indexing="ij")
                 if node_3d.adm:
-                    t1 = tm()
-                    node_3d.u_vectors, node_3d.v_vectors, tr, tc = method(rows, cols, boundary_operator, parameters, singular_sm, epsilon=epsilon, verbose=verbose)
-                    time_adm += tm() - t1
-                    time_adm_row += tr
-                    time_adm_col += tc
+                    t0_compression = time()
+                    node_3d.u_vectors, node_3d.v_vectors = method(rows, cols, boundary_operator, parameters, singular_sm, epsilon=epsilon, verbose=verbose)
+                    tf_compression = time()
+                    node_3d.stats["compression_time"] = tf_compression - t0_compression
+                    node_3d.stats["compression_storage"] = _np.prod(node_3d.u_vectors.shape) + _np.prod(node_3d.v_vectors.shape)
+                    node_3d.stats["full_storage"] = len(rows) * len(cols)
                 else:
                     # node_3d.matrix_block = _np.zeros((len(rows), len(cols)), dtype=_np.complex128)
-                    t1 = tm()
                     node_3d.matrix_block = pda(boundary_operator.descriptor, boundary_operator.domain, boundary_operator.dual_to_range, parameters, rows, cols)
                     node_3d.matrix_block = _np.array(node_3d.matrix_block + singular_sm[meshgrid[0], meshgrid[1]])
-                    time_nadm += tm() - t1
             else:
                 if node_3d.level < self.max_depth:
                     nodes_3d_to_check.extend(node_3d.children[node_3d.children != None].flatten())
-        print(f"Tiempo adm: \t{time_adm}s")
-        print(f"Tiempo adm row: \t{time_adm_row}s")
-        print(f"Tiempo adm col: \t{time_adm_col}s")
-        print(f"Tiempo no adm: \t{time_nadm}s")
 
     def add_compressed_matrix_mp(self, method, device_interface, boundary_operator, parameters, epsilon=1e-3, verbose=False):
         from MyHM.assembly import singular_assembler_sparse as sas 
@@ -377,9 +387,31 @@ class Tree3D:
             if child:
                 self.print_tree_with_matrix(child, file)
 
-    def histogram(self):
+    def plot_leaves_stats(self):
         import matplotlib.pyplot as plt
+        import seaborn as sns
+        import pandas as pd
 
+        compression_storages = [0.0] * (self.max_depth + 1)
+        full_storages = [0.0] * (self.max_depth + 1)
+        levels = list(range(self.max_depth + 1))
+
+        for node_3d in self.adm_leaves:
+            compression_storages[node_3d.level] += node_3d.stats["compression_storage"]
+            full_storages[node_3d.level] += node_3d.stats["full_storage"]
+        
+        df = pd.DataFrame({"Floating point units": compression_storages + full_storages, "Level": levels + levels,
+                           "Type": ["Compression"] * (self.max_depth + 1) + ["Full"] * (self.max_depth + 1)})
+        ax = sns.barplot(df, x="Level", y="Floating point units", hue="Type", errorbar=None, gap=0)
+        bar_labels = _np.divide(compression_storages, full_storages, where=_np.asarray(full_storages)!=0, out=_np.zeros_like(compression_storages)) * 100
+        bar_labels = _np.round(bar_labels, decimals=2)
+        ax.bar_label(ax.containers[0], fontsize=10, labels=map(lambda x: f"{x}%", bar_labels))
+        plt.title("Compression storage comparison")
+        sns.move_legend(ax, "upper left")
+        plt.show()
+
+    def pairplot(self):
+        import matplotlib.pyplot as plt
         import seaborn as sns
         import pandas as pd
 
@@ -400,14 +432,60 @@ class Tree3D:
                     nodes_3d_to_check.extend(node_3d.children[node_3d.children != None].flatten())
 
         df = pd.DataFrame({"Size": block_sizes, "Rank": block_ranks, "Ratio": _np.asarray(block_ranks)/_np.asarray(block_sizes), "Level": block_levels})
-        sns.pairplot(df, hue="Level", diag_kind="hist", diag_kws=dict(hue=None),
-                    #  x_vars=["Size", "Rank", "Ratio", "Level"],
-                    #  y_vars=["Size", "Rank", "Ratio", "Level"],
-        )
+
+        fig, axes = plt.subplots(3, 3, figsize=(10, 8))
+        fig.suptitle("Admissible leaves information")
+        sns.histplot(df["Size"], ax=axes[0, 0], stat='count')
+        sns.histplot(df["Rank"], ax=axes[1, 1], stat='count')
+        sns.histplot(df["Ratio"], ax=axes[2, 2], stat='count')
+        sns.scatterplot(x=df["Size"], y=df["Rank"], hue=df["Level"], ax=axes[1, 0])
+        sns.scatterplot(x=df["Size"], y=df["Ratio"], hue=df["Level"], ax=axes[2, 0])
+        sns.scatterplot(x=df["Rank"], y=df["Ratio"], hue=df["Level"], ax=axes[2, 1])
+
+        # New y-axis to the right
+        for i in range(3):
+            ax2 = axes[i, i].twinx()
+            # sns.histplot(df["Size"], ax=ax2, bins=4, stat='count')
+            ax2.set_ylim(axes[i, i].get_ylim())
+            ax2.set_yticks(axes[i, i].get_yticks()) 
+            ax2.set_ylabel(axes[i, i].get_ylabel())
+
+            axes[i, i].tick_params(axis='y',length=0)
+            axes[i, i].set_yticklabels([])
+            axes[i, i].set_ylabel("")
+        axes[0, 0].set_ylabel(axes[2, 0].get_xlabel())
+
+        # Remove shared tick labels:
+        axes[1, 0].set_xticklabels([])
+        axes[0, 0].set_xticklabels([])
+        axes[1, 1].set_xticklabels([])
+        axes[2, 1].set_yticklabels([])
+
+        # Remove shared axes labels:
+        axes[0, 0].set_xlabel("")
+        axes[1, 0].set_xlabel("")
+        axes[1, 1].set_xlabel("")
+        # axes[1, 1].set_ylabel("")
+        axes[2, 1].set_ylabel("")
+        # axes[2, 2].set_ylabel("")
+
+        # Legends:
+        fig.legend(*axes[1, 0].get_legend_handles_labels(), title='Level', bbox_to_anchor=axes[0, 2].get_position()) # loc='upper right'
+        axes[1, 0].get_legend().remove()
+        axes[2, 0].get_legend().remove()
+        axes[2, 1].get_legend().remove()
+
+        # Remove upper diagonal plots:
+        hide_indices = _np.triu_indices_from(axes, 1)
+        for i, j in zip(*hide_indices):
+            axes[i, j].remove()
+            axes[i, j] = None
+            # axes[i, j].set_visible(False)
+
+        plt.tight_layout(w_pad=-4)
         plt.show()
 
-
-    def imshow(self):
+    def compression_imshow(self):
         import matplotlib.pyplot as plt
 
         m = len(self.root.node1.points)
@@ -424,15 +502,15 @@ class Tree3D:
                 cols = node_3d.node2.dof_indices
                 mesh = _np.meshgrid(rows, cols, indexing="ij")
 
-                for i in rows:
-                    if i not in sorted_rows:
-                        sorted_rows.append(i)
-                for i in cols:
-                    if i not in sorted_cols:
-                        sorted_cols.append(i)
+                # for i in rows:
+                #     if i not in sorted_rows:
+                #         sorted_rows.append(i)
+                # for i in cols:
+                #     if i not in sorted_cols:
+                #         sorted_cols.append(i)
 
                 if node_3d.adm:
-                    size = max(len(node_3d.node1.dof_indices), len(node_3d.node2.dof_indices))
+                    size = min(len(node_3d.node1.dof_indices), len(node_3d.node2.dof_indices))
                     rank = node_3d.u_vectors.shape[0]
                     A[mesh[0], mesh[1]] = rank / size
                 else:
@@ -446,10 +524,10 @@ class Tree3D:
         plt.colorbar()
         plt.show()
 
-        plt.imshow(A[:, sorted_cols][sorted_rows, :], cmap="Blues", vmin=0.0, vmax=1.0)
-        plt.title("Image of compression (sorted)")
-        plt.colorbar()
-        plt.show()
+        # plt.imshow(A[:, sorted_cols][sorted_rows, :], cmap="Blues", vmin=0.0, vmax=1.0)
+        # plt.title("Image of compression (sorted)")
+        # plt.colorbar()
+        # plt.show()
 
     def plot_node_adm(self, target_node, points):
         assert target_node != None, "Node is Null"
