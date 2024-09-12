@@ -137,9 +137,9 @@ class Tree3D:
                     tf_compression = time()
                     node_3d.stats["compression_time"] = tf_compression - t0_compression
                     node_3d.stats["compression_storage"] = _np.prod(node_3d.u_vectors.shape) + _np.prod(node_3d.v_vectors.shape)
-                    node_3d.stats["full_storage"] = len(rows) * len(cols)
                 else:
                     node_3d.matrix_block = A[mesh[0], mesh[1]]
+                node_3d.stats["full_storage"] = len(rows) * len(cols)
             else:
                 if node_3d.level < self.max_depth:
                     nodes_3d_to_check.extend(node_3d.children[node_3d.children != None].flatten())
@@ -168,11 +168,11 @@ class Tree3D:
                     tf_compression = time()
                     node_3d.stats["compression_time"] = tf_compression - t0_compression
                     node_3d.stats["compression_storage"] = _np.prod(node_3d.u_vectors.shape) + _np.prod(node_3d.v_vectors.shape)
-                    node_3d.stats["full_storage"] = len(rows) * len(cols)
                 else:
                     # node_3d.matrix_block = _np.zeros((len(rows), len(cols)), dtype=_np.complex128)
                     node_3d.matrix_block = pda(boundary_operator.descriptor, boundary_operator.domain, boundary_operator.dual_to_range, parameters, rows, cols)
                     node_3d.matrix_block = _np.array(node_3d.matrix_block + singular_sm[meshgrid[0], meshgrid[1]])
+                node_3d.stats["full_storage"] = len(rows) * len(cols)
             else:
                 if node_3d.level < self.max_depth:
                     nodes_3d_to_check.extend(node_3d.children[node_3d.children != None].flatten())
@@ -339,22 +339,29 @@ class Tree3D:
 
 
     # New
-    def calculate_compressed_matrix_storage(self, size_dtype):
-        # size_dtype: size of dtype in bit (_np.complex128 = 128)
-        total_sum = 0
-        nodes_3d_to_check = [self.root]
-        while nodes_3d_to_check:
-            node_3d = nodes_3d_to_check.pop()
-            if node_3d.leaf:
-                if node_3d.adm:
-                    total_sum += _np.prod(node_3d.u_vectors.shape)
-                    total_sum += _np.prod(node_3d.v_vectors.shape)
-                else:
-                    total_sum += _np.prod(node_3d.matrix_block.shape)
-            else:
-                if node_3d.level < self.max_depth:
-                    nodes_3d_to_check.extend(node_3d.children[node_3d.children != None].flatten())
-        return total_sum * size_dtype / 8
+    def calculate_compressed_matrix_storage(self, verbose=False):
+        total_storage_in_use = 0
+        # aux = 0.0
+
+        for node_3d in self.adm_leaves:
+            total_storage_in_use += node_3d.stats["compression_storage"]
+            # aux += node_3d.stats["full_storage"]
+
+        for node_3d in self.nadm_leaves: 
+            total_storage_in_use += node_3d.stats["full_storage"]
+            # aux += node_3d.stats["full_storage"]
+
+        if verbose:
+            total_storage_without_compression = self.calculate_matrix_storage_without_compression()
+            print(f"Total storage in use: \t\t\t{total_storage_in_use:>10} [floating point units]")
+            print(f"Total storage without compression: \t{total_storage_without_compression:>10} [floating point units]")
+            print(f"Percentage: \t\t\t\t{_np.round(total_storage_in_use / total_storage_without_compression * 100, decimals=2):>10} %")
+
+        return total_storage_in_use
+
+    def calculate_matrix_storage_without_compression(self):
+        total_storage_without_compression = len(self.root.node1.dof_indices) * len(self.root.node2.dof_indices)
+        return total_storage_without_compression
 
     def search_node(self, tuple_of_ids):
         assert type(tuple_of_ids) == tuple, "tuple_of_ids must be a tuple two of strings"
@@ -387,7 +394,7 @@ class Tree3D:
             if child:
                 self.print_tree_with_matrix(child, file)
 
-    def plot_leaves_stats(self):
+    def plot_leaves_stats(self, save=False, name="Results/Storage_per_level"):
         import matplotlib.pyplot as plt
         import seaborn as sns
         import pandas as pd
@@ -406,11 +413,15 @@ class Tree3D:
         bar_labels = _np.divide(compression_storages, full_storages, where=_np.asarray(full_storages)!=0, out=_np.zeros_like(compression_storages)) * 100
         bar_labels = _np.round(bar_labels, decimals=2)
         ax.bar_label(ax.containers[0], fontsize=10, labels=map(lambda x: f"{x}%", bar_labels))
-        plt.title("Compression storage comparison")
+        plt.title("Compression storage comparison (Adm leaves)")
         sns.move_legend(ax, "upper left")
-        plt.show()
+        if save:
+            plt.savefig(name)
+            plt.close()
+        else:
+            plt.show()
 
-    def pairplot(self):
+    def pairplot(self, save=False, name="Results/Pairplot"):
         import matplotlib.pyplot as plt
         import seaborn as sns
         import pandas as pd
@@ -483,9 +494,13 @@ class Tree3D:
             # axes[i, j].set_visible(False)
 
         plt.tight_layout(w_pad=-4)
-        plt.show()
+        if save:
+            plt.savefig(name)
+            plt.close()
+        else:
+            plt.show()
 
-    def compression_imshow(self):
+    def compression_imshow(self, save=False, name="Results/Imshow"):
         import matplotlib.pyplot as plt
 
         m = len(self.root.node1.points)
@@ -522,7 +537,11 @@ class Tree3D:
         plt.imshow(A, cmap="Blues", vmin=0.0, vmax=1.0)
         plt.title("Image of compression")
         plt.colorbar()
-        plt.show()
+        if save:
+            plt.savefig(name)
+            plt.close()
+        else:
+            plt.show()
 
         # plt.imshow(A[:, sorted_cols][sorted_rows, :], cmap="Blues", vmin=0.0, vmax=1.0)
         # plt.title("Image of compression (sorted)")
