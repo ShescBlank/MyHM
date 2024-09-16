@@ -29,11 +29,11 @@ def partial_dense_assembler(
     data_type = get_type(precision).real
 
     # Get indices from elements associated to rows and cols vertices:
-    target_elements = get_elements_from_vertices(dual_to_range.grid, rows)
+    target_elements = get_elements_from_vertices(dual_to_range.global2local, rows)
     test_indices, test_color_indexptr = sort_partial_elements_by_color(dual_to_range, target_elements)
     # test_indices, test_color_indexptr = dual_to_range.get_elements_by_color()
 
-    target_elements = get_elements_from_vertices(domain.grid, cols)
+    target_elements = get_elements_from_vertices(domain.global2local, cols)
     trial_indices, trial_color_indexptr = sort_partial_elements_by_color(domain, target_elements)
     # trial_indices, trial_color_indexptr = domain.get_elements_by_color()
     
@@ -120,8 +120,8 @@ def singular_assembler_sparse(
 
         # _np.add.at(result, (singular_rows_global, singular_cols_global), values)
 
-        nrow = dual_to_range.grid.vertices.shape[1]
-        ncol = domain.grid.vertices.shape[1]
+        nrow = dual_to_range.global_dof_count
+        ncol = domain.global_dof_count
         sparse_matrix = csr_matrix((values, (singular_rows_global, singular_cols_global)), shape=(nrow, ncol), dtype=_np.complex128)
 
         # Return sparse matrix to distribute values throughout the tree:

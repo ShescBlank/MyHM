@@ -1,13 +1,14 @@
 import numpy as _np
 
 # TODO: Quizás sea importante acá revisar el requires_dof_transformation ???
-def get_elements_from_vertices(grid, vertices):
+def get_elements_from_vertices(global2local, vertices):
     '''
     Obtain the elements associated to an array of vertices of the grid
     '''
     elements = []
     for vertex in vertices:
-        elements.extend(grid.element_to_vertex_matrix.indices[grid.element_to_vertex_matrix.indptr[vertex]:grid.element_to_vertex_matrix.indptr[vertex+1]])
+        # elements.extend(_np.asarray(global2local[vertex])[:,0])
+        elements.extend([item[0] for item in global2local[vertex]])
     return _np.unique(elements)
 
 def sort_partial_elements_by_color(space, target_elements):

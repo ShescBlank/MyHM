@@ -7,27 +7,34 @@ import seaborn as sns
 import pandas as pd
 from time import time
 
-# grid = bempp.api.import_grid('grids/ribcage4-h-4.msh')
-# grid = bempp.api.import_grid('grids/ribcage3-h-1.msh')
-grid = bempp.api.import_grid('grids/ribcage4-h-0.5.msh')
+grid_name = "-h-0.5"
+
+grid = bempp.api.import_grid(f'grids/ribcage4{grid_name}.msh')
 
 # bempp.api.DEFAULT_DEVICE_INTERFACE = 'opencl'
 bempp.api.DEFAULT_DEVICE_INTERFACE = 'numba'
 
 bbox = grid.bounding_box
-vertices = grid.vertices
 space = bempp.api.function_space(grid, "P", 1)
+print(f"Global DOF count: {space.global_dof_count}")
+print(f"# Vertices: {grid.vertices.shape[1]}")
 if not space.requires_dof_transformation:
-    dof_indices = list(range(vertices.shape[1]))
+    dof_indices = list(range(space.global_dof_count))
+    excluded_vertices = np.unique(grid.elements[(space.local_multipliers == 0).T])
+    mask = np.ones(grid.vertices.shape[1], dtype=bool)
+    mask[excluded_vertices] = False
+    vertices = grid.vertices[:, mask]
 else:
     # TODO:
     raise NotImplementedError
     # space.dof_transformation.indices
+print(f"# Vertices DOFs: {vertices.shape[1]}")
 
 t0 = time()
-octree = stt.Octree(vertices.T, dof_indices, bbox, grid.maximum_element_diameter, max_depth=4)
+octree = stt.Octree(vertices.T, dof_indices, bbox, grid.maximum_element_diameter)
 octree.generate_tree()
 print(f"Generate Octree time: {time()-t0}")
+print(f"Max Depth: {octree.max_depth}")
 
 t0 = time()
 tree_3d = stt.Tree3D(octree)
@@ -42,15 +49,21 @@ parameters = bempp.api.GLOBAL_PARAMETERS
 device_interface = "numba"
 
 # Complete matrix:
-t0 = time()
-A = np.array(boundary_operator.weak_form().A)
-print(f"Generate complete matrix A time: {time()-t0}")
-b = np.random.rand(A.shape[1])
+# >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+# t0 = time()
+# A = np.array(boundary_operator.weak_form().A)
+# print(f"Generate complete matrix A time: {time()-t0}")
+# b = np.random.rand(A.shape[1])
+# np.save(f"Inputs/A{grid_name}.npy", A)
+# np.save(f"Inputs/b{grid_name}.npy", b)
+# print("Saved A and b")
+# ===========================================
+A = np.load(f"Inputs/A{grid_name}.npy")
+b = np.load(f"Inputs/b{grid_name}.npy")
+print("Loaded A and b")
+# <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
-np.save("Inputs/A.npy", A)
-np.save("Inputs/b.npy", b)
-print("Saved A and b")
-
+print("Shapes A and b:", A.shape, b.shape)
 result1 = A@b
 tree_3d.add_vector(b)
 
@@ -77,9 +90,9 @@ for i in range(len(epsilons)):
     print(f"Time of matvec: {time()-t0}")
     errors2.append(np.linalg.norm(result1 - aux_result) / np.linalg.norm(result1))
     used_storages.append(tree_3d.calculate_compressed_matrix_storage())
-    tree_3d.pairplot(save=True, name=f"Results/Pairplot_{string_i}")
-    tree_3d.plot_leaves_stats(save=True, name=f"Results/Storage_per_level_{string_i}")
-    tree_3d.compression_imshow(save=True, name=f"Results/Imshow_{string_i}")
+    tree_3d.pairplot(save=True, name=f"Results/Pairplot_{string_i}{grid_name}.png")
+    tree_3d.plot_leaves_stats(save=True, name=f"Results/Storage_per_level_{string_i}{grid_name}.png")
+    tree_3d.compression_imshow(save=True, name=f"Results/Imshow_{string_i}{grid_name}.png")
 
 plt.plot(epsilons, errors2, "o-", label="Relative error")
 plt.plot(epsilons, epsilons, "or--", label="Epsilon")
@@ -90,7 +103,7 @@ plt.xlabel("Epsilon")
 plt.ylabel("Relative error")
 plt.title("Relative errors in matvec operation")
 plt.legend()
-plt.savefig("Results/Relative_errors")
+plt.savefig(f"Results/Relative_errors{grid_name}.png")
 plt.close()
 
 formatted_epsilons = [np.format_float_scientific(e, precision=3) for e in epsilons]
@@ -105,7 +118,7 @@ plt.axhline(y=total_storage_without_compression, label="Total storage\nw/o compr
 plt.title("Used storage progression with epsilon")
 plt.xticks(rotation=45)
 plt.legend()
-plt.savefig("Results/Final_storages", bbox_inches="tight")
+plt.savefig(f"Results/Final_storages{grid_name}.png", bbox_inches="tight")
 plt.close()
 
 
