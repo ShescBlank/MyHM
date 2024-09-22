@@ -394,7 +394,7 @@ class Tree3D:
             if child:
                 self.print_tree_with_matrix(child, file)
 
-    def plot_leaves_stats(self, save=False, name="Results/Storage_per_level"):
+    def plot_storage_per_level(self, save=False, name="Results/Storage_per_level"):
         import matplotlib.pyplot as plt
         import seaborn as sns
         import pandas as pd

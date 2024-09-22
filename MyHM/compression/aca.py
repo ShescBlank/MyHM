@@ -15,7 +15,7 @@ def ACAPP(A, epsilon = 0.1, verbose=False):
 
     # Stopping criterion:
     sum_uv_norm_square = 0
-    first_delta = 0
+    first_abs_delta = 0
     
     while True:
         aux = 0
@@ -28,10 +28,10 @@ def ACAPP(A, epsilon = 0.1, verbose=False):
         R_row_copy[J] = 0
         j_star = _np.argmax(_np.abs(R_row_copy))
         delta = R_row_copy[j_star]
-        if first_delta == 0:
-            first_delta = abs(delta)
+        if first_abs_delta == 0:
+            first_abs_delta = abs(delta)
 
-        if delta == 0 or abs(delta)/first_delta <= 1e-15: # Agregamos un pequeño margen (puede ser complejo)
+        if delta == 0 or abs(delta)/first_abs_delta <= 1e-15: # Agregamos un pequeño margen (puede ser complejo)
         # if abs(delta) <= 1e-17:
             if len(I) == min(m, n): # Para que no siga agregando en caso de ya tener todos los índices
                 # print("Not reached Epsilon")
@@ -91,7 +91,7 @@ def ACAPP_with_assembly(rows, cols, boundary_operator, parameters, singular_matr
 
     # Stopping criterion:
     sum_uv_norm_square = 0
-    first_delta = 0
+    first_abs_delta = 0
     
     while True:
         aux = 0
@@ -112,10 +112,10 @@ def ACAPP_with_assembly(rows, cols, boundary_operator, parameters, singular_matr
         R_row_copy[J] = 0
         j_star = _np.argmax(_np.abs(R_row_copy))
         delta = R_row_copy[j_star]
-        if first_delta == 0:
-            first_delta = abs(delta)
+        if first_abs_delta == 0:
+            first_abs_delta = abs(delta)
 
-        if delta == 0 or abs(delta)/first_delta <= 1e-15: # Agregamos un pequeño margen (puede ser complejo)
+        if delta == 0 or abs(delta)/first_abs_delta <= 1e-15: # Agregamos un pequeño margen (puede ser complejo)
         # if abs(delta) <= 1e-17:
             if len(I) == min(m, n): # Para que no siga agregando en caso de ya tener todos los índices
                 # print("Not reached Epsilon")

@@ -91,7 +91,7 @@ for i in range(len(epsilons)):
     errors2.append(np.linalg.norm(result1 - aux_result) / np.linalg.norm(result1))
     used_storages.append(tree_3d.calculate_compressed_matrix_storage())
     tree_3d.pairplot(save=True, name=f"Results/Pairplot_{string_i}{grid_name}.png")
-    tree_3d.plot_leaves_stats(save=True, name=f"Results/Storage_per_level_{string_i}{grid_name}.png")
+    tree_3d.plot_storage_per_level(save=True, name=f"Results/Storage_per_level_{string_i}{grid_name}.png")
     tree_3d.compression_imshow(save=True, name=f"Results/Imshow_{string_i}{grid_name}.png")
 
 plt.plot(epsilons, errors2, "o-", label="Relative error")
