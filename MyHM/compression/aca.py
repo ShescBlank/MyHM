@@ -31,10 +31,11 @@ def ACAPP(A, epsilon = 0.1, verbose=False):
         if first_abs_delta == 0:
             first_abs_delta = abs(delta)
 
-        if delta == 0 or abs(delta)/first_abs_delta <= 1e-15: # Agregamos un pequeño margen (puede ser complejo)
-        # if abs(delta) <= 1e-17:
-            if len(I) == min(m, n): # Para que no siga agregando en caso de ya tener todos los índices
+        # if delta == 0 or abs(delta)/first_abs_delta <= 1e-15: # Agregamos un pequeño margen (puede ser complejo)
+        if delta == 0:
+            if len(I) >= min(m, n): # Para que no siga agregando en caso de ya tener todos los índices
                 # print("Not reached Epsilon")
+                exit_code = 0
                 break
             if len(u_vectors) == 0: # Edge case in which the first row chosen consists of zeros only
                 i_star += 1
@@ -67,14 +68,30 @@ def ACAPP(A, epsilon = 0.1, verbose=False):
         norm_v = _np.linalg.norm(v)
         sum_uv_norm_square += norm_u**2 * norm_v**2
         error_rel = norm_u * norm_v / _np.sqrt(sum_uv_norm_square)
-        if error_rel <= epsilon:
+        if error_rel <= epsilon or len(u_vectors) == min(m, n): # Epsilon reached or rank completed
             # print("Reached Epsilon")
+            exit_code = 1
             break
 
     if verbose:
-        print(f"Finished in k={k} out of {m}")
-        print(f"Relative error between matrices: {_np.linalg.norm(A-_np.asarray(u_vectors).T @ _np.asarray(v_vectors)) / _np.linalg.norm(A)}")
+        # print(f"Finished in k={k} out of {m}")
+        # print(f"Relative error between matrices: {_np.linalg.norm(A-_np.asarray(u_vectors).T @ _np.asarray(v_vectors)) / _np.linalg.norm(A)}")
     
+        print(f"Exit code: {exit_code}")
+        if len(u_vectors) > min(m, n):
+            print(">"*10)
+            print(f"Diff: {len(u_vectors) - min(m, n)}")
+            print(R.shape)
+            print(len(I), I)
+            u, c = _np.unique(I, return_counts=True)
+            print(u[c > 1], c[c > 1])
+            print(len(J), J)
+            u, c = _np.unique(J, return_counts=True)
+            print(u[c > 1], c[c > 1])
+            print(_np.linalg.norm(A-_np.asarray(u_vectors)[0:min(m, n),:].T @ _np.asarray(v_vectors)[0:min(m, n),:]) / _np.linalg.norm(A))
+            print(_np.linalg.norm(A-_np.asarray(u_vectors).T @ _np.asarray(v_vectors)) / _np.linalg.norm(A))
+            print("<"*10)
+
     return _np.array(u_vectors), _np.array(v_vectors)
 
 def ACAPP_with_assembly(rows, cols, boundary_operator, parameters, singular_matrix, epsilon = 0.1, verbose=False):
@@ -115,9 +132,9 @@ def ACAPP_with_assembly(rows, cols, boundary_operator, parameters, singular_matr
         if first_abs_delta == 0:
             first_abs_delta = abs(delta)
 
-        if delta == 0 or abs(delta)/first_abs_delta <= 1e-15: # Agregamos un pequeño margen (puede ser complejo)
-        # if abs(delta) <= 1e-17:
-            if len(I) == min(m, n): # Para que no siga agregando en caso de ya tener todos los índices
+        # if delta == 0 or abs(delta)/first_abs_delta <= 1e-15: # Agregamos un pequeño margen (puede ser complejo)
+        if delta == 0:
+            if len(I) >= min(m, n): # Para que no siga agregando en caso de ya tener todos los índices
                 # print("Not reached Epsilon")
                 break
             if len(u_vectors) == 0: # Edge case in which the first row chosen consists of zeros only
@@ -159,7 +176,7 @@ def ACAPP_with_assembly(rows, cols, boundary_operator, parameters, singular_matr
         norm_v = _np.linalg.norm(v)
         sum_uv_norm_square += norm_u**2 * norm_v**2
         error_rel = norm_u * norm_v / _np.sqrt(sum_uv_norm_square)
-        if error_rel <= epsilon:
+        if error_rel <= epsilon or len(u_vectors) == min(m, n): # Epsilon reached or rank completed
             # print("Reached Epsilon")
             break
 

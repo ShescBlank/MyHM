@@ -6,8 +6,9 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
 from time import time
+import os
 
-grid_name = "-h-0.5"
+grid_name = "-h-0.5_edit"
 
 grid = bempp.api.import_grid(f'grids/ribcage4{grid_name}.msh')
 
@@ -49,19 +50,18 @@ parameters = bempp.api.GLOBAL_PARAMETERS
 device_interface = "numba"
 
 # Complete matrix:
-# >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-# t0 = time()
-# A = np.array(boundary_operator.weak_form().A)
-# print(f"Generate complete matrix A time: {time()-t0}")
-# b = np.random.rand(A.shape[1])
-# np.save(f"Inputs/A{grid_name}.npy", A)
-# np.save(f"Inputs/b{grid_name}.npy", b)
-# print("Saved A and b")
-# ===========================================
-A = np.load(f"Inputs/A{grid_name}.npy")
-b = np.load(f"Inputs/b{grid_name}.npy")
-print("Loaded A and b")
-# <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+if os.path.isfile(f"Inputs/A{grid_name}.npy"):
+    A = np.load(f"Inputs/A{grid_name}.npy")
+    b = np.load(f"Inputs/b{grid_name}.npy")
+    print("Loaded A and b")
+else:
+    t0 = time()
+    A = np.array(boundary_operator.weak_form().A)
+    print(f"Generate complete matrix A time: {time()-t0}")
+    b = np.random.rand(A.shape[1])
+    np.save(f"Inputs/A{grid_name}.npy", A)
+    np.save(f"Inputs/b{grid_name}.npy", b)
+    print("Saved A and b")
 
 print("Shapes A and b:", A.shape, b.shape)
 result1 = A@b
@@ -71,6 +71,7 @@ print(f"Singular adm leaves? {tree_3d.check_singular_adm_leaves(device_interface
 
 errors2 = []
 epsilons = [2**(-1*i) for i in range(1,50,4)]
+formatted_epsilons = [np.format_float_scientific(e, precision=3) for e in epsilons]
 used_storages = []
 total_storage_without_compression = tree_3d.calculate_matrix_storage_without_compression()
 
@@ -90,9 +91,9 @@ for i in range(len(epsilons)):
     print(f"Time of matvec: {time()-t0}")
     errors2.append(np.linalg.norm(result1 - aux_result) / np.linalg.norm(result1))
     used_storages.append(tree_3d.calculate_compressed_matrix_storage())
-    tree_3d.pairplot(save=True, name=f"Results/Pairplot_{string_i}{grid_name}.png")
-    tree_3d.plot_storage_per_level(save=True, name=f"Results/Storage_per_level_{string_i}{grid_name}.png")
-    tree_3d.compression_imshow(save=True, name=f"Results/Imshow_{string_i}{grid_name}.png")
+    tree_3d.pairplot(save=True, name=f"Results/Pairplot_{string_i}{grid_name}.png", extra_title=f"(epsilon = {formatted_epsilons[i]})")
+    tree_3d.plot_storage_per_level(save=True, name=f"Results/Storage_per_level_{string_i}{grid_name}.png", extra_title=f"(epsilon = {formatted_epsilons[i]})")
+    tree_3d.compression_imshow(save=True, name=f"Results/Imshow_{string_i}{grid_name}.png", extra_title=f"(epsilon = {formatted_epsilons[i]})")
 
 plt.plot(epsilons, errors2, "o-", label="Relative error")
 plt.plot(epsilons, epsilons, "or--", label="Epsilon")
@@ -106,7 +107,6 @@ plt.legend()
 plt.savefig(f"Results/Relative_errors{grid_name}.png")
 plt.close()
 
-formatted_epsilons = [np.format_float_scientific(e, precision=3) for e in epsilons]
 df = pd.DataFrame({"Used storage": used_storages, "Epsilon": formatted_epsilons})
 ax = sns.barplot(df, x="Epsilon", y="Used storage", errorbar=None, gap=0.3)
 bar_labels = np.round(np.asarray(used_storages) / total_storage_without_compression * 100, decimals=1)
@@ -116,6 +116,7 @@ xlim = (xlim[0] - 0.5, xlim[1] + 0.5)
 plt.xlim(xlim)
 plt.axhline(y=total_storage_without_compression, label="Total storage\nw/o compression", linestyle="--", color='r') 
 plt.title("Used storage progression with epsilon")
+plt.ylabel("Used storage (Floating point units)")
 plt.xticks(rotation=45)
 plt.legend()
 plt.savefig(f"Results/Final_storages{grid_name}.png", bbox_inches="tight")

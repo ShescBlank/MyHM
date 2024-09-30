@@ -2,6 +2,7 @@ import numpy as _np
 from time import time
 from MyHM.structures.octree import Node, Octree
 from MyHM.structures.utils import admissibility
+from MyHM.structures.utils import tuple2index
 
 def compress_node_mp(node_3d, method, boundary_operator, parameters, singular_sm, epsilon=1e-3, verbose=False):
     from MyHM.assembly import partial_dense_assembler as pda
@@ -378,6 +379,100 @@ class Tree3D:
             if not node_3d:
                 return
         return node_3d
+    
+    def __getitem__(self, key):
+        if isinstance(key, tuple) and len(key)==2:
+            i = key[0] % len(self.root.node1.points)
+            j = key[1] % len(self.root.node2.points)
+            i_index = _np.where(_np.asarray(self.root.node1.dof_indices) == i)[0][0]
+            j_index = _np.where(_np.asarray(self.root.node2.dof_indices) == j)[0][0]
+            row_point = self.root.node1.points[i_index]
+            col_point = self.root.node2.points[j_index]
+
+            node_3d = self.root
+            for level in range(self.max_depth):
+                node1_x_min, node1_x_max = node_3d.node1.bbox[0,0], node_3d.node1.bbox[0,1]
+                node1_y_min, node1_y_max = node_3d.node1.bbox[1,0], node_3d.node1.bbox[1,1]
+                node1_z_min, node1_z_max = node_3d.node1.bbox[2,0], node_3d.node1.bbox[2,1]
+                node1_delta_x = (node1_x_max - node1_x_min) / 2
+                node1_delta_y = (node1_y_max - node1_y_min) / 2
+                node1_delta_z = (node1_z_max - node1_z_min) / 2
+
+                node2_x_min, node2_x_max = node_3d.node2.bbox[0,0], node_3d.node2.bbox[0,1]
+                node2_y_min, node2_y_max = node_3d.node2.bbox[1,0], node_3d.node2.bbox[1,1]
+                node2_z_min, node2_z_max = node_3d.node2.bbox[2,0], node_3d.node2.bbox[2,1]
+                node2_delta_x = (node2_x_max - node2_x_min) / 2
+                node2_delta_y = (node2_y_max - node2_y_min) / 2
+                node2_delta_z = (node2_z_max - node2_z_min) / 2
+
+                id_x = int((row_point[0] - node1_x_min) >= node1_delta_x)
+                id_y = int((row_point[1] - node1_y_min) >= node1_delta_y)
+                id_z = int((row_point[2] - node1_z_min) >= node1_delta_z)
+                node1_child = tuple2index((id_x, id_y, id_z))
+
+                id_x = int((col_point[0] - node2_x_min) >= node2_delta_x)
+                id_y = int((col_point[1] - node2_y_min) >= node2_delta_y)
+                id_z = int((col_point[2] - node2_z_min) >= node2_delta_z)
+                node2_child = tuple2index((id_x, id_y, id_z))
+
+                node_3d = node_3d.children[node1_child, node2_child]
+
+                if node_3d.adm:
+                    raise IndexError("The item corresponds to an admissible node")
+
+            i_index = _np.where(_np.asarray(node_3d.node1.dof_indices) == i)[0][0]
+            j_index = _np.where(_np.asarray(node_3d.node2.dof_indices) == j)[0][0]
+            return node_3d.matrix_block[i_index, j_index]
+
+        else:
+            raise TypeError(f"{type(self).__name__} indices must be a 2-tuple of integers, not {type(key).__name__}")
+
+    def __setitem__(self, key, new_value):
+        if isinstance(key, tuple) and len(key)==2:
+            i = key[0] % len(self.root.node1.points)
+            j = key[1] % len(self.root.node2.points)
+            i_index = _np.where(_np.asarray(self.root.node1.dof_indices) == i)[0][0]
+            j_index = _np.where(_np.asarray(self.root.node2.dof_indices) == j)[0][0]
+            row_point = self.root.node1.points[i_index]
+            col_point = self.root.node2.points[j_index]
+
+            node_3d = self.root
+            for level in range(self.max_depth):
+                node1_x_min, node1_x_max = node_3d.node1.bbox[0,0], node_3d.node1.bbox[0,1]
+                node1_y_min, node1_y_max = node_3d.node1.bbox[1,0], node_3d.node1.bbox[1,1]
+                node1_z_min, node1_z_max = node_3d.node1.bbox[2,0], node_3d.node1.bbox[2,1]
+                node1_delta_x = (node1_x_max - node1_x_min) / 2
+                node1_delta_y = (node1_y_max - node1_y_min) / 2
+                node1_delta_z = (node1_z_max - node1_z_min) / 2
+
+                node2_x_min, node2_x_max = node_3d.node2.bbox[0,0], node_3d.node2.bbox[0,1]
+                node2_y_min, node2_y_max = node_3d.node2.bbox[1,0], node_3d.node2.bbox[1,1]
+                node2_z_min, node2_z_max = node_3d.node2.bbox[2,0], node_3d.node2.bbox[2,1]
+                node2_delta_x = (node2_x_max - node2_x_min) / 2
+                node2_delta_y = (node2_y_max - node2_y_min) / 2
+                node2_delta_z = (node2_z_max - node2_z_min) / 2
+
+                id_x = int((row_point[0] - node1_x_min) >= node1_delta_x)
+                id_y = int((row_point[1] - node1_y_min) >= node1_delta_y)
+                id_z = int((row_point[2] - node1_z_min) >= node1_delta_z)
+                node1_child = tuple2index((id_x, id_y, id_z))
+
+                id_x = int((col_point[0] - node2_x_min) >= node2_delta_x)
+                id_y = int((col_point[1] - node2_y_min) >= node2_delta_y)
+                id_z = int((col_point[2] - node2_z_min) >= node2_delta_z)
+                node2_child = tuple2index((id_x, id_y, id_z))
+
+                node_3d = node_3d.children[node1_child, node2_child]
+
+                if node_3d.adm:
+                    raise IndexError("The item corresponds to an admissible node")
+
+            i_index = _np.where(_np.asarray(node_3d.node1.dof_indices) == i)[0][0]
+            j_index = _np.where(_np.asarray(node_3d.node2.dof_indices) == j)[0][0]
+            node_3d.matrix_block[i_index, j_index] = new_value
+
+        else:
+            raise TypeError(f"{type(self).__name__} indices must be a 2-tuple of integers, not {type(key).__name__}")
 
     def print_tree(self, node_3d, file=None):
         print("|\t"*node_3d.level + f"({node_3d.node1.id}, {node_3d.node2.id}) - Leaf: {node_3d.leaf}", file=file)
@@ -394,7 +489,7 @@ class Tree3D:
             if child:
                 self.print_tree_with_matrix(child, file)
 
-    def plot_storage_per_level(self, save=False, name="Results/Storage_per_level"):
+    def plot_storage_per_level(self, save=False, name="Results/Storage_per_level", extra_title=""):
         import matplotlib.pyplot as plt
         import seaborn as sns
         import pandas as pd
@@ -413,15 +508,19 @@ class Tree3D:
         bar_labels = _np.divide(compression_storages, full_storages, where=_np.asarray(full_storages)!=0, out=_np.zeros_like(compression_storages)) * 100
         bar_labels = _np.round(bar_labels, decimals=2)
         ax.bar_label(ax.containers[0], fontsize=10, labels=map(lambda x: f"{x}%", bar_labels))
-        plt.title("Compression storage comparison (Adm leaves)")
+        title = "Compression storage comparison (only adm leaves)"
+        if extra_title:
+            title += f"\n{extra_title}"
+        plt.title(title)
         sns.move_legend(ax, "upper left")
+        plt.tight_layout()
         if save:
             plt.savefig(name)
             plt.close()
         else:
             plt.show()
 
-    def pairplot(self, save=False, name="Results/Pairplot"):
+    def pairplot(self, save=False, name="Results/Pairplot", extra_title=""):
         import matplotlib.pyplot as plt
         import seaborn as sns
         import pandas as pd
@@ -445,7 +544,10 @@ class Tree3D:
         df = pd.DataFrame({"Size": block_sizes, "Rank": block_ranks, "Ratio": _np.asarray(block_ranks)/_np.asarray(block_sizes), "Level": block_levels})
 
         fig, axes = plt.subplots(3, 3, figsize=(10, 8))
-        fig.suptitle("Admissible leaves information")
+        title = "Admissible leaves information"
+        if extra_title:
+            title += f"\n{extra_title}"
+        fig.suptitle(title)
         sns.histplot(df["Size"], ax=axes[0, 0], stat='count')
         sns.histplot(df["Rank"], ax=axes[1, 1], stat='count')
         sns.histplot(df["Ratio"], ax=axes[2, 2], stat='count')
@@ -500,7 +602,7 @@ class Tree3D:
         else:
             plt.show()
 
-    def compression_imshow(self, save=False, name="Results/Imshow"):
+    def compression_imshow(self, save=False, name="Results/Imshow", extra_title=""):
         import matplotlib.pyplot as plt
 
         m = len(self.root.node1.points)
@@ -535,8 +637,12 @@ class Tree3D:
                     nodes_3d_to_check.extend(node_3d.children[node_3d.children != None].flatten())
 
         plt.imshow(A, cmap="Blues", vmin=0.0, vmax=1.0)
-        plt.title("Image of compression")
+        title = "Image of compression"
+        if extra_title:
+            title += f"\n{extra_title}"
+        plt.title(title)
         plt.colorbar()
+        plt.tight_layout()
         if save:
             plt.savefig(name)
             plt.close()
