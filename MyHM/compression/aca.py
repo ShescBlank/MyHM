@@ -1,10 +1,14 @@
 import numpy as _np
+from scipy.sparse import lil_matrix
 
 # https://www.epfl.ch/labs/anchp/wp-content/uploads/2018/10/lecture4-slides.pdf
 # https://web.archive.org/web/20060903235945id_/http://esl.eng.ohio-state.edu/~csg/papers/79.pdf
 def ACAPP(A, epsilon = 0.1, verbose=False):
     R = _np.copy(A)
     m, n = R.shape
+    assembled_values = lil_matrix((m, n), dtype=R.dtype)
+    mask_row = _np.zeros(n, dtype=bool)
+    mask_col = _np.zeros(m, dtype=bool)
     I = []
     J = []
     k = 0
@@ -23,7 +27,17 @@ def ACAPP(A, epsilon = 0.1, verbose=False):
         #     aux += u_vectors[l][i_star] * v_vectors[l]
         if k > 0:
             aux = _np.asarray(u_vectors)[:, i_star].T @ _np.asarray(v_vectors)
-        R_row = R[i_star, :] - aux                               # Se necesita una fila de la matriz original
+
+        # Row of original matrix:
+        # R_row = R[i_star, :] - aux # Old version
+        # mask_row[:] = False
+        # mask_row[assembled_values[i_star, :].rows[0]] = True
+        # if _np.sum(~mask_row) > 0:
+        if mask_col[i_star] != True and _np.sum(~mask_row) > 0:
+            assembled_values[i_star, ~mask_row] = R[i_star, ~mask_row]
+            mask_col[i_star] = True
+        R_row = assembled_values[i_star, :].toarray().flatten() - aux
+
         R_row_copy = _np.copy(R_row)
         R_row_copy[J] = 0
         j_star = _np.argmax(_np.abs(R_row_copy))
@@ -51,7 +65,17 @@ def ACAPP(A, epsilon = 0.1, verbose=False):
             #     aux += v_vectors[l][j_star] * u_vectors[l]
             if k>0:
                 aux = _np.asarray(v_vectors)[:, j_star].T @ _np.asarray(u_vectors)
-            u = R[:, j_star] - aux                               # Se necesita una columna de la matriz original
+
+            # Column of original matrix:
+            # u = R[:, j_star] - aux # Old version
+            # mask_col[:] = False
+            # mask_col[assembled_values.T[j_star, :].rows[0]] = True
+            # if _np.sum(~mask_col) > 0:
+            if mask_row[j_star] != True and _np.sum(~mask_col) > 0:
+                assembled_values[~mask_col, j_star] = R[~mask_col, j_star]
+                mask_row[j_star] = True
+            u = assembled_values[:, j_star].toarray().flatten() - aux
+
             k += 1
             u_vectors.append(u)
             v_vectors.append(v)
@@ -94,10 +118,20 @@ def ACAPP(A, epsilon = 0.1, verbose=False):
 
     return _np.array(u_vectors), _np.array(v_vectors)
 
-def ACAPP_with_assembly(rows, cols, boundary_operator, parameters, singular_matrix, epsilon = 0.1, verbose=False):
-    from MyHM.assembly import partial_dense_assembler as pda
+def ACAPP_with_assembly(rows, cols, boundary_operator, parameters, singular_matrix, epsilon = 0.1, verbose=False, dtype=_np.complex128):
+    import MyHM
+    if MyHM.ADM_option == 1:
+        from MyHM.assembly import partial_dense_assembler as pda
+    elif MyHM.ADM_option == 2:
+        from MyHM.assembly import partial_dense_assembler2 as pda
+
+    rows = _np.asarray(rows)
+    cols = _np.asarray(cols)
 
     m, n = len(rows), len(cols)
+    assembled_values = lil_matrix((m, n), dtype=dtype)
+    mask_row = _np.zeros(n, dtype=bool)
+    mask_col = _np.zeros(m, dtype=bool)
     I = []
     J = []
     k = 0
@@ -114,17 +148,20 @@ def ACAPP_with_assembly(rows, cols, boundary_operator, parameters, singular_matr
         aux = 0
         if k > 0:
             aux = _np.asarray(u_vectors)[:, i_star].T @ _np.asarray(v_vectors)
-        # >>>>>>>>>>>>
-        # R_row = R[i_star, :] - aux                               # Se necesita una fila de la matriz original
-        # ============
-        R_row = pda(boundary_operator.descriptor, boundary_operator.domain, boundary_operator.dual_to_range, parameters, [rows[i_star]], cols)
-
-        meshgrid = _np.meshgrid(rows[i_star], cols, indexing="ij")
-        R_row = _np.array(R_row + singular_matrix[meshgrid[0], meshgrid[1]])
+        
+        # Row of original matrix:
+        # mask_row[:] = False
+        # mask_row[assembled_values[i_star, :].rows[0]] = True
+        # if len(cols[~mask_row]) > 0:
+        if mask_col[i_star] != True and _np.sum(~mask_row) > 0:
+            assembled_values[i_star, ~mask_row] = pda(boundary_operator.descriptor, boundary_operator.domain, boundary_operator.dual_to_range, parameters, [rows[i_star]], cols[~mask_row]) # PIN
+            # assembled_values[i_star:i_star+1, ~mask_row] = pda(boundary_operator.descriptor, boundary_operator.domain, boundary_operator.dual_to_range, parameters, [rows[i_star]], cols[~mask_row])
+            mask_col[i_star] = True
+        R_row = assembled_values[i_star, :].toarray()
+        # R_row = _np.array(R_row + singular_matrix[rows[i_star], cols])
 
         R_row = R_row.flatten()
         R_row -= aux
-        # <<<<<<<<<<<<
         R_row_copy = _np.copy(R_row)
         R_row_copy[J] = 0
         j_star = _np.argmax(_np.abs(R_row_copy))
@@ -149,17 +186,20 @@ def ACAPP_with_assembly(rows, cols, boundary_operator, parameters, singular_matr
             aux = 0
             if k>0:
                 aux = _np.asarray(v_vectors)[:, j_star].T @ _np.asarray(u_vectors)
-            # >>>>>>>>>>>>
-            # u = R[:, j_star] - aux                               # Se necesita una columna de la matriz original
-            # ============
-            u = pda(boundary_operator.descriptor, boundary_operator.domain, boundary_operator.dual_to_range, parameters, rows, [cols[j_star]])
-
-            meshgrid = _np.meshgrid(rows, cols[j_star], indexing="ij")
-            u = _np.array(u + singular_matrix[meshgrid[0], meshgrid[1]])
+            
+            # Column of original matrix:
+            # mask_col[:] = False
+            # mask_col[assembled_values.T[j_star, :].rows[0]] = True
+            # if len(rows[~mask_col]) > 0:
+            if mask_row[j_star] != True and _np.sum(~mask_col) > 0:
+                assembled_values[~mask_col, j_star] = pda(boundary_operator.descriptor, boundary_operator.domain, boundary_operator.dual_to_range, parameters, rows[~mask_col], [cols[j_star]]) # PIN
+                # assembled_values[~mask_col, j_star:j_star+1] = pda(boundary_operator.descriptor, boundary_operator.domain, boundary_operator.dual_to_range, parameters, rows[~mask_col], [cols[j_star]])
+                mask_row[j_star] = True
+            u = assembled_values[:, j_star].toarray()
+            # u = _np.array(u + singular_matrix[rows, cols[j_star]])
             
             u = u.flatten()
             u -= aux
-            # <<<<<<<<<<<<
             k += 1
             u_vectors.append(u)
             v_vectors.append(v)
