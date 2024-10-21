@@ -11,7 +11,7 @@
 #SBATCH --mail-user=alberto.almuna@uc.cl
 # Solicitud de cpus
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=32
+#SBATCH --cpus-per-task=64
 
 echo "start script"
 date
@@ -22,4 +22,4 @@ time python script.py
 echo "end script"
 date
 
-cp submit.sh Inputs/
+cp submit.sh Results/

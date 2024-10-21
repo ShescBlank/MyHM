@@ -2,15 +2,32 @@ import bempp.api
 import numpy as np
 import MyHM.structures as stt
 from MyHM.compression.aca import ACAPP_with_assembly, ACAPP
+import MyHM
 import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
+from numba import config
 from time import time
 import os
+
+def convert_to_preferred_format(sec):
+   sec = sec % (24 * 3600)
+   hour = sec // 3600
+   sec %= 3600
+   min = sec // 60
+   sec %= 60
+   print("%02d:%02d:%02d" % (hour, min, sec))
+
+os.environ['NUMBA_DEBUG_CACHE'] = "1"
 
 grid_name = "-h-0.5_edit"
 
 grid = bempp.api.import_grid(f'grids/ribcage4{grid_name}.msh')
+
+print(f"\n{'='*50}")
+print("GRID NAME:", grid_name)
+print("CPUS:", config.NUMBA_DEFAULT_NUM_THREADS)
+print(f"{'='*50}\n")
 
 # bempp.api.DEFAULT_DEVICE_INTERFACE = 'opencl'
 bempp.api.DEFAULT_DEVICE_INTERFACE = 'numba'
@@ -57,7 +74,8 @@ if os.path.isfile(f"Inputs/A{grid_name}.npy"):
 else:
     t0 = time()
     A = np.array(boundary_operator.weak_form().A)
-    print(f"Generate complete matrix A time: {time()-t0}")
+    tf = time()
+    print(f"Generate complete matrix A time: {convert_to_preferred_format(tf-t0)}")
     b = np.random.rand(A.shape[1])
     np.save(f"Inputs/A{grid_name}.npy", A)
     np.save(f"Inputs/b{grid_name}.npy", b)
@@ -67,11 +85,22 @@ print("Shapes A and b:", A.shape, b.shape)
 result1 = A@b
 tree_3d.add_vector(b)
 
-print(f"Singular adm leaves? {tree_3d.check_singular_adm_leaves(device_interface, boundary_operator, parameters)}")
 
-errors2 = []
-epsilons = [2**(-1*i) for i in range(1,50,4)]
+print("\n========================")
+print("Assemblers compilation:")
+import MyHM.assembly as asb
+rows = [0]
+cols = [0]
+t0 = time()
+# asb.partial_dense_assembler(boundary_operator.descriptor, boundary_operator.domain, boundary_operator.dual_to_range, parameters, rows, cols)
+asb.partial_dense_assembler2(boundary_operator.descriptor, boundary_operator.domain, boundary_operator.dual_to_range, parameters, rows, cols)
+print(f"Compilation time: {time()-t0}")
+print(f"Singular adm leaves? {tree_3d.check_singular_adm_leaves(device_interface, boundary_operator, parameters)}")
+print("========================")
+
+epsilons = [2**(-1*i) for i in range(1,50,4)][:8]
 formatted_epsilons = [np.format_float_scientific(e, precision=3) for e in epsilons]
+errors2 = []
 used_storages = []
 total_storage_without_compression = tree_3d.calculate_matrix_storage_without_compression()
 
@@ -80,15 +109,35 @@ for i in range(len(epsilons)):
         string_i = f"0{i}"
     else:
         string_i = f"{i}"
+    print()
+    print("="*50)
+    print(f"\n{string_i}) Epsilon: {formatted_epsilons[i]}\n")
 
-    print(f"\n{string_i}) Epsilon:{epsilons[i]}")
     t0 = time()
-    # tree_3d.add_compressed_matrix(ACAPP_with_assembly, device_interface, boundary_operator, parameters, epsilon=epsilons[i], verbose=False)
     tree_3d.add_matrix_with_ACA(A, ACAPP, epsilon=epsilons[i], verbose=False)
-    print(f"Time of compression: {time()-t0}")
+    tf = time()
+    print(f"Time of compression w/o assembler and w/assembled_values: {convert_to_preferred_format(tf-t0)}")
     t0 = time()
     aux_result = tree_3d.matvec_compressed(dtype=np.complex128)
-    print(f"Time of matvec: {time()-t0}")
+    tf = time()
+    print(f"Time of matvec: {convert_to_preferred_format(tf-t0)} s")
+    print("Relative error:", np.linalg.norm(result1 - aux_result) / np.linalg.norm(result1))
+    # print(np.linalg.norm(A - tree_3d.get_matrix_from_compression()) / np.linalg.norm(A))
+    print()
+
+    MyHM.ADM_option = 2
+    MyHM.NADM_option = 2
+    t0 = time()
+    tree_3d.add_compressed_matrix(ACAPP_with_assembly, device_interface, boundary_operator, parameters, epsilon=epsilons[i], verbose=False)
+    tf = time()
+    print(f"Time of compression w/assembler: {convert_to_preferred_format(tf-t0)}")
+    t0 = time()
+    aux_result = tree_3d.matvec_compressed(dtype=np.complex128)
+    tf = time()
+    print(f"Time of matvec: {convert_to_preferred_format(tf-t0)} s")
+    print("Relative error:", np.linalg.norm(result1 - aux_result) / np.linalg.norm(result1))
+    print()
+
     errors2.append(np.linalg.norm(result1 - aux_result) / np.linalg.norm(result1))
     used_storages.append(tree_3d.calculate_compressed_matrix_storage())
     tree_3d.pairplot(save=True, name=f"Results/Pairplot_{string_i}{grid_name}.png", extra_title=f"(epsilon = {formatted_epsilons[i]})")
@@ -122,5 +171,18 @@ plt.legend()
 plt.savefig(f"Results/Final_storages{grid_name}.png", bbox_inches="tight")
 plt.close()
 
-
-
+# for i in range(2):
+#     for j in range(2):
+#         print((i,j))
+#         MyHM.ADM_option = i+1
+#         MyHM.NADM_option = j+1
+#         t0 = time()
+#         tree_3d.add_compressed_matrix(ACAPP_with_assembly, device_interface, boundary_operator, parameters, epsilon=1e-3, verbose=False)
+#         print(f"Time of compression: {time()-t0}")
+#         t0 = time()
+#         aux_result = tree_3d.matvec_compressed(dtype=np.complex128)
+#         tf = time()
+#         print(f"Time of matvec: {tf-t0} s")
+#         print("Relative error:", np.linalg.norm(result1 - aux_result) / np.linalg.norm(result1))
+#         print()
+#         np.save(f"Results/{i}_{j}.npy", np.array([tf-t0]))

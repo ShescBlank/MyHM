@@ -4,18 +4,18 @@ from MyHM.structures.octree import Node, Octree
 from MyHM.structures.utils import admissibility
 from MyHM.structures.utils import tuple2index
 
-def compress_node_mp(node_3d, method, boundary_operator, parameters, singular_sm, epsilon=1e-3, verbose=False):
-    from MyHM.assembly import partial_dense_assembler as pda
-    from MyHM.assembly import singular_assembler_sparse as sas 
+# def compress_node_mp(node_3d, method, boundary_operator, parameters, singular_sm, epsilon=1e-3, verbose=False):
+#     from MyHM.assembly import partial_dense_assembler as pda
+#     from MyHM.assembly import singular_assembler_sparse as sas 
 
-    rows = node_3d.node1.dof_indices
-    cols = node_3d.node2.dof_indices
-    meshgrid = _np.meshgrid(rows, cols, indexing="ij")
-    if node_3d.adm:
-        node_3d.u_vectors, node_3d.v_vectors = method(rows, cols, boundary_operator, parameters, singular_sm, epsilon=epsilon, verbose=verbose)
-    else:
-        node_3d.matrix_block = pda(boundary_operator.descriptor, boundary_operator.domain, boundary_operator.dual_to_range, parameters, rows, cols)
-        node_3d.matrix_block = _np.array(node_3d.matrix_block + singular_sm[meshgrid[0], meshgrid[1]])
+#     rows = node_3d.node1.dof_indices
+#     cols = node_3d.node2.dof_indices
+#     meshgrid = _np.meshgrid(rows, cols, indexing="ij")
+#     if node_3d.adm:
+#         node_3d.u_vectors, node_3d.v_vectors = method(rows, cols, boundary_operator, parameters, singular_sm, epsilon=epsilon, verbose=verbose)
+#     else:
+#         node_3d.matrix_block = pda(boundary_operator.descriptor, boundary_operator.domain, boundary_operator.dual_to_range, parameters, rows, cols)
+#         node_3d.matrix_block = _np.array(node_3d.matrix_block + singular_sm[meshgrid[0], meshgrid[1]])
 
 # Tree 3D:
 class Node3D:
@@ -135,9 +135,18 @@ class Tree3D:
                 if node_3d.adm:
                     t0_compression = time()
                     node_3d.u_vectors, node_3d.v_vectors = method(A[mesh[0], mesh[1]], epsilon=epsilon, verbose=verbose)
+                    # u_vectors, v_vectors = method(A[mesh[0], mesh[1]], epsilon=epsilon, verbose=verbose) # Esto no funciona (BUG)
                     tf_compression = time()
+                    if node_3d.v_vectors is None:
+                    # if v_vectors is None:
+                        node_3d.matrix_block = node_3d.u_vectors
+                        node_3d.u_vectors = None
+                        # node_3d.matrix_block = u_vectors
+                        node_3d.stats["compression_storage"] = _np.prod(node_3d.matrix_block.shape)
+                    else:
+                    #     node_3d.u_vectors, node_3d.v_vectors = u_vectors, v_vectors
+                        node_3d.stats["compression_storage"] = _np.prod(node_3d.u_vectors.shape) + _np.prod(node_3d.v_vectors.shape)
                     node_3d.stats["compression_time"] = tf_compression - t0_compression
-                    node_3d.stats["compression_storage"] = _np.prod(node_3d.u_vectors.shape) + _np.prod(node_3d.v_vectors.shape)
                 else:
                     node_3d.matrix_block = A[mesh[0], mesh[1]]
                 node_3d.stats["full_storage"] = len(rows) * len(cols)
@@ -171,8 +180,13 @@ class Tree3D:
                     t0_compression = time()
                     node_3d.u_vectors, node_3d.v_vectors = method(rows, cols, boundary_operator, parameters, singular_sm, epsilon=epsilon, verbose=verbose)
                     tf_compression = time()
+                    if node_3d.v_vectors is None:
+                        node_3d.matrix_block = node_3d.u_vectors
+                        node_3d.u_vectors = None
+                        node_3d.stats["compression_storage"] = _np.prod(node_3d.matrix_block.shape)
+                    else:
+                        node_3d.stats["compression_storage"] = _np.prod(node_3d.u_vectors.shape) + _np.prod(node_3d.v_vectors.shape)
                     node_3d.stats["compression_time"] = tf_compression - t0_compression
-                    node_3d.stats["compression_storage"] = _np.prod(node_3d.u_vectors.shape) + _np.prod(node_3d.v_vectors.shape)
                 else:
                     dense_block = pda(boundary_operator.descriptor, boundary_operator.domain, boundary_operator.dual_to_range, parameters, rows, cols)
                     node_3d.matrix_block = _np.array(dense_block + singular_sm[meshgrid[0], meshgrid[1]]) # PIN
@@ -208,51 +222,56 @@ class Tree3D:
             t0_compression = time()
             node_3d.u_vectors, node_3d.v_vectors = method(rows, cols, boundary_operator, parameters, singular_sm, epsilon=epsilon, verbose=verbose)
             tf_compression = time()
+            if node_3d.v_vectors is None:
+                node_3d.matrix_block = node_3d.u_vectors
+                node_3d.u_vectors = None
+                node_3d.stats["compression_storage"] = _np.prod(node_3d.matrix_block.shape)
+            else:
+                node_3d.stats["compression_storage"] = _np.prod(node_3d.u_vectors.shape) + _np.prod(node_3d.v_vectors.shape)
             node_3d.stats["compression_time"] = tf_compression - t0_compression
-            node_3d.stats["compression_storage"] = _np.prod(node_3d.u_vectors.shape) + _np.prod(node_3d.v_vectors.shape)
             node_3d.stats["full_storage"] = len(rows) * len(cols)
 
-    def add_compressed_matrix_mp(self, method, device_interface, boundary_operator, parameters, epsilon=1e-3, verbose=False):
-        from MyHM.assembly import singular_assembler_sparse as sas 
-        from MyHM.structures.utils import wrap_classes, unwrap_classes
+    # def add_compressed_matrix_mp(self, method, device_interface, boundary_operator, parameters, epsilon=1e-3, verbose=False):
+    #     from MyHM.assembly import singular_assembler_sparse as sas 
+    #     from MyHM.structures.utils import wrap_classes, unwrap_classes
 
-        from joblib import Parallel
-        from joblib import delayed
+    #     from joblib import Parallel
+    #     from joblib import delayed
 
-        # from multiprocessing import Pool
-        # from itertools import repeat
+    #     # from multiprocessing import Pool
+    #     # from itertools import repeat
 
-        # Obtain singular part:
-        singular_sm = sas(device_interface, boundary_operator.descriptor, boundary_operator.domain, boundary_operator.dual_to_range, parameters) 
+    #     # Obtain singular part:
+    #     singular_sm = sas(device_interface, boundary_operator.descriptor, boundary_operator.domain, boundary_operator.dual_to_range, parameters) 
 
-        # Wrap classes to pickle:
-        prev_grid_datas = wrap_classes(boundary_operator)
+    #     # Wrap classes to pickle:
+    #     prev_grid_datas = wrap_classes(boundary_operator)
         
-        # # Joblib:
-        parallel_compression = delayed(compress_node_mp)
-        parallel_tasks_adm = [parallel_compression(self.adm_leaves[i], method, boundary_operator, parameters, singular_sm, epsilon, verbose) for i in range(len(self.adm_leaves))]
-        parallel_tasks_nadm = [parallel_compression(self.nadm_leaves[i], method, boundary_operator, parameters, singular_sm, epsilon, verbose) for i in range(len(self.nadm_leaves))]
-        with Parallel(n_jobs=-1, verbose=10) as parallel_pool:
-            parallel_pool(parallel_tasks_adm)
-            parallel_pool(parallel_tasks_nadm)
+    #     # # Joblib:
+    #     parallel_compression = delayed(compress_node_mp)
+    #     parallel_tasks_adm = [parallel_compression(self.adm_leaves[i], method, boundary_operator, parameters, singular_sm, epsilon, verbose) for i in range(len(self.adm_leaves))]
+    #     parallel_tasks_nadm = [parallel_compression(self.nadm_leaves[i], method, boundary_operator, parameters, singular_sm, epsilon, verbose) for i in range(len(self.nadm_leaves))]
+    #     with Parallel(n_jobs=-1, verbose=10) as parallel_pool:
+    #         parallel_pool(parallel_tasks_adm)
+    #         parallel_pool(parallel_tasks_nadm)
 
-        # # Multiprocessing:
-        # pool = Pool(1)
-        # pool.starmap(
-        #     compress_node_mp,
-        #     zip(
-        #         self.adm_leaves,
-        #         repeat(method),
-        #         repeat(boundary_operator),
-        #         repeat(parameters),
-        #         repeat(singular_sm),
-        #         repeat(epsilon),
-        #         repeat(verbose),
-        #     ),
-        # )
+    #     # # Multiprocessing:
+    #     # pool = Pool(1)
+    #     # pool.starmap(
+    #     #     compress_node_mp,
+    #     #     zip(
+    #     #         self.adm_leaves,
+    #     #         repeat(method),
+    #     #         repeat(boundary_operator),
+    #     #         repeat(parameters),
+    #     #         repeat(singular_sm),
+    #     #         repeat(epsilon),
+    #     #         repeat(verbose),
+    #     #     ),
+    #     # )
 
-        # Unwrap classes:
-        unwrap_classes(prev_grid_datas)
+    #     # Unwrap classes:
+    #     unwrap_classes(prev_grid_datas)
 
     # New:
     def get_matrix(self):
@@ -287,7 +306,10 @@ class Tree3D:
                 if not node_3d.adm:
                     A[mesh[0], mesh[1]] = node_3d.matrix_block
                 else:
-                    A[mesh[0], mesh[1]] = _np.asarray(node_3d.u_vectors).T @ _np.asarray(node_3d.v_vectors)
+                    if node_3d.v_vectors is None:
+                        A[mesh[0], mesh[1]] = node_3d.matrix_block
+                    else:
+                        A[mesh[0], mesh[1]] = _np.asarray(node_3d.u_vectors).T @ _np.asarray(node_3d.v_vectors)
             else:
                 if node_3d.level < self.max_depth:
                     nodes_3d_to_check.extend(node_3d.children[node_3d.children != None].flatten())
@@ -345,7 +367,10 @@ class Tree3D:
             if node_3d.leaf:
                 rows = node_3d.node1.dof_indices
                 if node_3d.adm:
-                    result_vector[rows] += (node_3d.u_vectors.T @ node_3d.v_vectors @ node_3d.vector_segment)
+                    if node_3d.v_vectors is None:
+                        result_vector[rows] += (node_3d.matrix_block @ node_3d.vector_segment)
+                    else:
+                        result_vector[rows] += (node_3d.u_vectors.T @ node_3d.v_vectors @ node_3d.vector_segment)
                 else:
                     result_vector[rows] += (node_3d.matrix_block @ node_3d.vector_segment)
             else:
@@ -569,7 +594,10 @@ class Tree3D:
                 block_sizes.append(
                     min(len(node_3d.node1.dof_indices), len(node_3d.node2.dof_indices))
                 )
-                block_ranks.append(node_3d.u_vectors.shape[0])
+                if node_3d.v_vectors is None:
+                    block_ranks.append(block_sizes[-1])
+                else:
+                    block_ranks.append(node_3d.u_vectors.shape[0])
                 block_levels.append(node_3d.level)
             else:
                 if node_3d.level < self.max_depth:
@@ -662,7 +690,10 @@ class Tree3D:
 
                 if node_3d.adm:
                     size = min(len(node_3d.node1.dof_indices), len(node_3d.node2.dof_indices))
-                    rank = node_3d.u_vectors.shape[0]
+                    if node_3d.v_vectors is None:
+                        rank = size
+                    else:
+                        rank = node_3d.u_vectors.shape[0]
                     A[mesh[0], mesh[1]] = rank / size
                 else:
                     A[mesh[0], mesh[1]] = 1.0

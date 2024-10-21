@@ -85,6 +85,14 @@ def ACAPP(A, epsilon = 0.1, verbose=False):
         u_copy[I] = 0
         i_star = _np.argmax(_np.abs(u_copy))
 
+        # Check if compression is still viable:
+        if len(u_vectors) * len(u_vectors[0]) + len(v_vectors) * len(v_vectors[0]) > m * n:
+            matrix = assembled_values.toarray()
+            if _np.sum(~mask_col) > 0 and _np.sum(~mask_row) > 0:
+                meshgrid = _np.meshgrid(_np.arange(m)[~mask_col], _np.arange(n)[~mask_row], indexing="ij")
+                matrix[meshgrid[0], meshgrid[1]] = R[meshgrid[0], meshgrid[1]]
+            return matrix, None
+
         # Stopping criterion:
         u = u_vectors[-1]
         v = v_vectors[-1]
@@ -208,6 +216,14 @@ def ACAPP_with_assembly(rows, cols, boundary_operator, parameters, singular_matr
         u_copy = _np.copy(u_vectors[-1])
         u_copy[I] = 0
         i_star = _np.argmax(_np.abs(u_copy))
+
+        # Check if compression is still viable:
+        if len(u_vectors) * len(u_vectors[0]) + len(v_vectors) * len(v_vectors[0]) > m * n:
+            matrix = assembled_values.toarray()
+            if _np.sum(~mask_col) > 0 and _np.sum(~mask_row) > 0:
+                meshgrid = _np.meshgrid(_np.arange(m)[~mask_col], _np.arange(n)[~mask_row], indexing="ij")
+                matrix[meshgrid[0], meshgrid[1]] = pda(boundary_operator.descriptor, boundary_operator.domain, boundary_operator.dual_to_range, parameters, rows[~mask_col], cols[~mask_row])
+            return matrix, None
 
         # Stopping criterion:
         u = u_vectors[-1]
