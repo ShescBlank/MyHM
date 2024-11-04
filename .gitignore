@@ -3,3 +3,5 @@ __pycache__/
 grids/
 Results/
 Inputs/
+vsie/
+VSIE_notebook.ipynb

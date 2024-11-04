@@ -36,18 +36,9 @@ def select_numba_assembly_partial2(operator_descriptor, mode="regular"):
         "helmholtz_hypersingular": helmholtz_hypersingular_regular_partial2,
         "modified_helmholtz_hypersingular": modified_helmholtz_hypersingular_regular_partial2,
     }
-    # assembly_functions_singular = {
-        # "default_scalar": default_scalar_singular_kernel,
-        # "helmholtz_hypersingular": helmholtz_hypersingular_singular,
-        # "modified_helmholtz_hypersingular": modified_helmholtz_hypersingular_singular,
-    # }
-
-    # default_sparse_kernel la utiliza bempp.api.operators.boundary.helmholtz.osrc_ntd(space, k)
 
     if mode == "regular":
         return assembly_functions_regular[operator_descriptor.assembly_type]
-    # elif mode == "singular":
-    #     return assembly_functions_singular[operator_descriptor.assembly_type]
     else:
         raise ValueError("Unknown mode.")
 

@@ -44,15 +44,15 @@ class Node3D:
             "compression_storage": 0,
             "full_storage": 0,
             "compression_time": 0,
-            "matvec_time": 0,
+            # "matvec_time": 0, # TODO:
         }
 
 class Tree3D:
-    def __init__(self, octree: Octree):
-        self.root = Node3D(parent=None, node1=octree.root, node2=octree.root, level=0, adm=False, leaf=False)
-        self.max_depth = octree.max_depth
-        self.min_block_size = octree.min_block_size
-        self.max_element_diameter = octree.max_element_diameter
+    def __init__(self, octree1: Octree, octree2: Octree):
+        self.root = Node3D(parent=None, node1=octree1.root, node2=octree2.root, level=0, adm=False, leaf=False)
+        self.max_depth = min(octree1.max_depth, octree2.max_depth)
+        # self.min_block_size = octree.min_block_size
+        self.max_element_diameter = max(octree1.max_element_diameter, octree2.max_element_diameter)
         self.adm_leaves = []
         self.nadm_leaves = []
         self.stats = {
@@ -135,16 +135,12 @@ class Tree3D:
                 if node_3d.adm:
                     t0_compression = time()
                     node_3d.u_vectors, node_3d.v_vectors = method(A[mesh[0], mesh[1]], epsilon=epsilon, verbose=verbose)
-                    # u_vectors, v_vectors = method(A[mesh[0], mesh[1]], epsilon=epsilon, verbose=verbose) # Esto no funciona (BUG)
                     tf_compression = time()
                     if node_3d.v_vectors is None:
-                    # if v_vectors is None:
                         node_3d.matrix_block = node_3d.u_vectors
                         node_3d.u_vectors = None
-                        # node_3d.matrix_block = u_vectors
                         node_3d.stats["compression_storage"] = _np.prod(node_3d.matrix_block.shape)
                     else:
-                    #     node_3d.u_vectors, node_3d.v_vectors = u_vectors, v_vectors
                         node_3d.stats["compression_storage"] = _np.prod(node_3d.u_vectors.shape) + _np.prod(node_3d.v_vectors.shape)
                     node_3d.stats["compression_time"] = tf_compression - t0_compression
                 else:
@@ -230,6 +226,24 @@ class Tree3D:
                 node_3d.stats["compression_storage"] = _np.prod(node_3d.u_vectors.shape) + _np.prod(node_3d.v_vectors.shape)
             node_3d.stats["compression_time"] = tf_compression - t0_compression
             node_3d.stats["full_storage"] = len(rows) * len(cols)
+
+    def clear_compression(self):
+        """
+        Removes all data associated to the matrix compression
+        """
+        nodes_3d_to_check = [self.root]
+        while nodes_3d_to_check:
+            node_3d = nodes_3d_to_check.pop()
+            if node_3d.leaf:
+                node_3d.u_vectors = None
+                node_3d.v_vectors = None
+                node_3d.matrix_block = None
+                node_3d.stats["full_storage"] = 0
+                node_3d.stats["compression_time"] = 0
+                node_3d.stats["compression_storage"] = 0
+            else:
+                if node_3d.level < self.max_depth:
+                    nodes_3d_to_check.extend(node_3d.children[node_3d.children != None].flatten())
 
     # def add_compressed_matrix_mp(self, method, device_interface, boundary_operator, parameters, epsilon=1e-3, verbose=False):
     #     from MyHM.assembly import singular_assembler_sparse as sas 
@@ -547,6 +561,9 @@ class Tree3D:
         for child in node_3d.children.flatten():
             if child:
                 self.print_tree_with_matrix(child, file)
+
+    def shape(self):
+        return (len(self.root.node1.dof_indices), len(self.root.node2.dof_indices))
 
     def plot_storage_per_level(self, save=False, name="Results/Storage_per_level", extra_title=""):
         import matplotlib.pyplot as plt

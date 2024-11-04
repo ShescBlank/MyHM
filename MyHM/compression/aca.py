@@ -30,9 +30,6 @@ def ACAPP(A, epsilon = 0.1, verbose=False):
 
         # Row of original matrix:
         # R_row = R[i_star, :] - aux # Old version
-        # mask_row[:] = False
-        # mask_row[assembled_values[i_star, :].rows[0]] = True
-        # if _np.sum(~mask_row) > 0:
         if mask_col[i_star] != True and _np.sum(~mask_row) > 0:
             assembled_values[i_star, ~mask_row] = R[i_star, ~mask_row]
             mask_col[i_star] = True
@@ -47,17 +44,25 @@ def ACAPP(A, epsilon = 0.1, verbose=False):
 
         # if delta == 0 or abs(delta)/first_abs_delta <= 1e-15: # Agregamos un pequeño margen (puede ser complejo)
         if delta == 0:
-            if len(I) >= min(m, n): # Para que no siga agregando en caso de ya tener todos los índices
-                # print("Not reached Epsilon")
-                exit_code = 0
-                break
-            if len(u_vectors) == 0: # Edge case in which the first row chosen consists of zeros only
-                i_star += 1
-                if i_star == m: # Everything is zero
+            if _np.sum(mask_col) >= min(m, n):
+                if len(u_vectors) == 0:
                     u_vectors.append(_np.zeros(m, dtype=R.dtype)) # 1xm
                     v_vectors.append(_np.zeros(n, dtype=R.dtype)) # 1xn
-                    break
-                continue
+                break
+            i_star = _np.random.choice(_np.arange(m)[~mask_col])
+            continue
+            # ===========
+            # if len(I) >= min(m, n): # Para que no siga agregando en caso de ya tener todos los índices
+            #     # print("Not reached Epsilon")
+            #     exit_code = 0
+            #     break
+            # if len(u_vectors) == 0: # Edge case in which the first row chosen consists of zeros only
+            #     i_star += 1
+            #     if i_star == m: # Everything is zero
+            #         u_vectors.append(_np.zeros(m, dtype=R.dtype)) # 1xm
+            #         v_vectors.append(_np.zeros(n, dtype=R.dtype)) # 1xn
+            #         break
+            #     continue
         else:
             v = R_row / delta
             aux = 0
@@ -68,9 +73,6 @@ def ACAPP(A, epsilon = 0.1, verbose=False):
 
             # Column of original matrix:
             # u = R[:, j_star] - aux # Old version
-            # mask_col[:] = False
-            # mask_col[assembled_values.T[j_star, :].rows[0]] = True
-            # if _np.sum(~mask_col) > 0:
             if mask_row[j_star] != True and _np.sum(~mask_col) > 0:
                 assembled_values[~mask_col, j_star] = R[~mask_col, j_star]
                 mask_row[j_star] = True
@@ -158,9 +160,6 @@ def ACAPP_with_assembly(rows, cols, boundary_operator, parameters, singular_matr
             aux = _np.asarray(u_vectors)[:, i_star].T @ _np.asarray(v_vectors)
         
         # Row of original matrix:
-        # mask_row[:] = False
-        # mask_row[assembled_values[i_star, :].rows[0]] = True
-        # if len(cols[~mask_row]) > 0:
         if mask_col[i_star] != True and _np.sum(~mask_row) > 0:
             assembled_values[i_star, ~mask_row] = pda(boundary_operator.descriptor, boundary_operator.domain, boundary_operator.dual_to_range, parameters, [rows[i_star]], cols[~mask_row]) # PIN
             # assembled_values[i_star:i_star+1, ~mask_row] = pda(boundary_operator.descriptor, boundary_operator.domain, boundary_operator.dual_to_range, parameters, [rows[i_star]], cols[~mask_row])
@@ -179,16 +178,24 @@ def ACAPP_with_assembly(rows, cols, boundary_operator, parameters, singular_matr
 
         # if delta == 0 or abs(delta)/first_abs_delta <= 1e-15: # Agregamos un pequeño margen (puede ser complejo)
         if delta == 0:
-            if len(I) >= min(m, n): # Para que no siga agregando en caso de ya tener todos los índices
-                # print("Not reached Epsilon")
-                break
-            if len(u_vectors) == 0: # Edge case in which the first row chosen consists of zeros only
-                i_star += 1
-                if i_star == m: # Everything is zero
+            if _np.sum(mask_col) >= min(m, n):
+                if len(u_vectors) == 0:
                     u_vectors.append(_np.zeros(m, dtype=R_row.dtype)) # 1xm
                     v_vectors.append(_np.zeros(n, dtype=R_row.dtype)) # 1xn
-                    break
-                continue
+                break
+            i_star = _np.random.choice(_np.arange(m)[~mask_col])
+            continue
+            # ===========
+            # if len(I) >= min(m, n): # Para que no siga agregando en caso de ya tener todos los índices
+            #     # print("Not reached Epsilon")
+            #     break
+            # if len(u_vectors) == 0: # Edge case in which the first row chosen consists of zeros only
+            #     i_star += 1
+            #     if i_star == m: # Everything is zero
+            #         u_vectors.append(_np.zeros(m, dtype=R_row.dtype)) # 1xm
+            #         v_vectors.append(_np.zeros(n, dtype=R_row.dtype)) # 1xn
+            #         break
+            #     continue
         else:
             v = R_row / delta
             aux = 0
@@ -196,9 +203,6 @@ def ACAPP_with_assembly(rows, cols, boundary_operator, parameters, singular_matr
                 aux = _np.asarray(v_vectors)[:, j_star].T @ _np.asarray(u_vectors)
             
             # Column of original matrix:
-            # mask_col[:] = False
-            # mask_col[assembled_values.T[j_star, :].rows[0]] = True
-            # if len(rows[~mask_col]) > 0:
             if mask_row[j_star] != True and _np.sum(~mask_col) > 0:
                 assembled_values[~mask_col, j_star] = pda(boundary_operator.descriptor, boundary_operator.domain, boundary_operator.dual_to_range, parameters, rows[~mask_col], [cols[j_star]]) # PIN
                 # assembled_values[~mask_col, j_star:j_star+1] = pda(boundary_operator.descriptor, boundary_operator.domain, boundary_operator.dual_to_range, parameters, rows[~mask_col], [cols[j_star]])
