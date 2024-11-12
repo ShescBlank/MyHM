@@ -17,7 +17,7 @@ echo "start script"
 date
 
 which python
-time python script_vsie.py
+time python script_gmres.py
 
 echo "end script"
 date

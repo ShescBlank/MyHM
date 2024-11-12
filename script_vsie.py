@@ -121,7 +121,7 @@ for i in range(len(spaces)):
     print("DOF indices:", len(dof_indices))
     
     # Octree:
-    maximum_element_diameter = vox_length
+    maximum_element_diameter = vox_length * np.sqrt(2) # TODO: chequear cómo se comporta con el raíz de 2
     octree = stt.Octree(vertices, dof_indices, bbox, maximum_element_diameter, max_depth=None)
     ti = time()
     octree.generate_tree()
@@ -246,7 +246,7 @@ for index in range(len(As)):
         tf = time()
         print(f"Time of compression w/o assembler and w/assembled_values: {tf-t0} s")
         t0 = time()
-        aux_result = tree_3d.matvec_compressed(dtype=np.complex128)
+        aux_result = tree_3d.matvec_compressed()
         tf = time()
         print(f"Time of matvec: {tf-t0} s")
         print("Relative error:", np.linalg.norm(result1 - aux_result) / np.linalg.norm(result1))

@@ -161,8 +161,8 @@ def ACAPP_with_assembly(rows, cols, boundary_operator, parameters, singular_matr
         
         # Row of original matrix:
         if mask_col[i_star] != True and _np.sum(~mask_row) > 0:
-            assembled_values[i_star, ~mask_row] = pda(boundary_operator.descriptor, boundary_operator.domain, boundary_operator.dual_to_range, parameters, [rows[i_star]], cols[~mask_row]) # PIN
-            # assembled_values[i_star:i_star+1, ~mask_row] = pda(boundary_operator.descriptor, boundary_operator.domain, boundary_operator.dual_to_range, parameters, [rows[i_star]], cols[~mask_row])
+            assembled_values[i_star, ~mask_row] = pda(boundary_operator.descriptor, boundary_operator.domain, boundary_operator.dual_to_range, parameters, [rows[i_star]], cols[~mask_row], dtype=dtype) # PIN
+            # assembled_values[i_star:i_star+1, ~mask_row] = pda(boundary_operator.descriptor, boundary_operator.domain, boundary_operator.dual_to_range, parameters, [rows[i_star]], cols[~mask_row], dtype=dtype)
             mask_col[i_star] = True
         R_row = assembled_values[i_star, :].toarray()
         # R_row = _np.array(R_row + singular_matrix[rows[i_star], cols])
@@ -204,8 +204,8 @@ def ACAPP_with_assembly(rows, cols, boundary_operator, parameters, singular_matr
             
             # Column of original matrix:
             if mask_row[j_star] != True and _np.sum(~mask_col) > 0:
-                assembled_values[~mask_col, j_star] = pda(boundary_operator.descriptor, boundary_operator.domain, boundary_operator.dual_to_range, parameters, rows[~mask_col], [cols[j_star]]) # PIN
-                # assembled_values[~mask_col, j_star:j_star+1] = pda(boundary_operator.descriptor, boundary_operator.domain, boundary_operator.dual_to_range, parameters, rows[~mask_col], [cols[j_star]])
+                assembled_values[~mask_col, j_star] = pda(boundary_operator.descriptor, boundary_operator.domain, boundary_operator.dual_to_range, parameters, rows[~mask_col], [cols[j_star]], dtype=dtype) # PIN
+                # assembled_values[~mask_col, j_star:j_star+1] = pda(boundary_operator.descriptor, boundary_operator.domain, boundary_operator.dual_to_range, parameters, rows[~mask_col], [cols[j_star]], dtype=dtype)
                 mask_row[j_star] = True
             u = assembled_values[:, j_star].toarray()
             # u = _np.array(u + singular_matrix[rows, cols[j_star]])

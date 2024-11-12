@@ -30,7 +30,7 @@ else:
 octree = stt.Octree(vertices.T, dof_indices, bbox, max_depth=4)
 octree.generate_tree()
 
-tree_3d = stt.Tree3D(octree)
+tree_3d = stt.Tree3D(octree, octree, dtype=np.complex128)
 tree_3d.generate_adm_tree()
 
 k = 7

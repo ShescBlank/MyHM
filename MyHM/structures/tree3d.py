@@ -48,19 +48,21 @@ class Node3D:
         }
 
 class Tree3D:
-    def __init__(self, octree1: Octree, octree2: Octree):
+    def __init__(self, octree1: Octree, octree2: Octree, dtype=_np.complex128):
         self.root = Node3D(parent=None, node1=octree1.root, node2=octree2.root, level=0, adm=False, leaf=False)
         self.max_depth = min(octree1.max_depth, octree2.max_depth)
         # self.min_block_size = octree.min_block_size
         self.max_element_diameter = max(octree1.max_element_diameter, octree2.max_element_diameter)
         self.adm_leaves = []
         self.nadm_leaves = []
+        self.dtype = dtype
         self.stats = {
             "number_of_nodes": 1,
             "number_of_leaves": 0,
             "number_of_not_adm_leaves": 0,
             "number_of_adm_leaves": 0,
         }
+        self.shape = self.shape()
 
     def generate_adm_tree(self, adm_fun=admissibility):
         nodes_3d_to_add = [self.root]
@@ -174,7 +176,7 @@ class Tree3D:
                 meshgrid = _np.meshgrid(rows, cols, indexing="ij")
                 if node_3d.adm:
                     t0_compression = time()
-                    node_3d.u_vectors, node_3d.v_vectors = method(rows, cols, boundary_operator, parameters, singular_sm, epsilon=epsilon, verbose=verbose)
+                    node_3d.u_vectors, node_3d.v_vectors = method(rows, cols, boundary_operator, parameters, singular_sm, epsilon=epsilon, verbose=verbose, dtype=self.dtype)
                     tf_compression = time()
                     if node_3d.v_vectors is None:
                         node_3d.matrix_block = node_3d.u_vectors
@@ -184,7 +186,7 @@ class Tree3D:
                         node_3d.stats["compression_storage"] = _np.prod(node_3d.u_vectors.shape) + _np.prod(node_3d.v_vectors.shape)
                     node_3d.stats["compression_time"] = tf_compression - t0_compression
                 else:
-                    dense_block = pda(boundary_operator.descriptor, boundary_operator.domain, boundary_operator.dual_to_range, parameters, rows, cols)
+                    dense_block = pda(boundary_operator.descriptor, boundary_operator.domain, boundary_operator.dual_to_range, parameters, rows, cols, dtype=self.dtype)
                     node_3d.matrix_block = _np.array(dense_block + singular_sm[meshgrid[0], meshgrid[1]]) # PIN
                     # node_3d.matrix_block = (dense_block + singular_sm[meshgrid[0], meshgrid[1]]).toarray()
                 node_3d.stats["full_storage"] = len(rows) * len(cols)
@@ -206,8 +208,8 @@ class Tree3D:
             rows = node_3d.node1.dof_indices
             cols = node_3d.node2.dof_indices
             meshgrid = _np.meshgrid(rows, cols, indexing="ij")
-            # node_3d.matrix_block = _np.zeros((len(rows), len(cols)), dtype=_np.complex128)
-            node_3d.matrix_block = pda(boundary_operator.descriptor, boundary_operator.domain, boundary_operator.dual_to_range, parameters, rows, cols)
+            # node_3d.matrix_block = _np.zeros((len(rows), len(cols)), dtype=self.dtype)
+            node_3d.matrix_block = pda(boundary_operator.descriptor, boundary_operator.domain, boundary_operator.dual_to_range, parameters, rows, cols, dtype=self.dtype)
             node_3d.matrix_block = _np.array(node_3d.matrix_block + singular_sm[meshgrid[0], meshgrid[1]])
             node_3d.stats["full_storage"] = len(rows) * len(cols)
 
@@ -216,7 +218,7 @@ class Tree3D:
             cols = node_3d.node2.dof_indices
             meshgrid = _np.meshgrid(rows, cols, indexing="ij")
             t0_compression = time()
-            node_3d.u_vectors, node_3d.v_vectors = method(rows, cols, boundary_operator, parameters, singular_sm, epsilon=epsilon, verbose=verbose)
+            node_3d.u_vectors, node_3d.v_vectors = method(rows, cols, boundary_operator, parameters, singular_sm, epsilon=epsilon, verbose=verbose, dtype=self.dtype)
             tf_compression = time()
             if node_3d.v_vectors is None:
                 node_3d.matrix_block = node_3d.u_vectors
@@ -305,10 +307,10 @@ class Tree3D:
                     nodes_3d_to_check.extend(node_3d.children[node_3d.children != None].flatten())
         return A
 
-    def get_matrix_from_compression(self, dtype=_np.complex128):
+    def get_matrix_from_compression(self):
         m = len(self.root.node1.points)
         n = len(self.root.node2.points)
-        A = _np.zeros((m, n), dtype=dtype)
+        A = _np.zeros((m, n), dtype=self.dtype)
         nodes_3d_to_check = [self.root]
         while nodes_3d_to_check:
             node_3d = nodes_3d_to_check.pop()
@@ -357,9 +359,9 @@ class Tree3D:
         return b
 
     # New:
-    def matvec(self, dtype=None):
+    def matvec(self):
         m = len(self.root.node1.points)
-        result_vector = _np.zeros(m, dtype=dtype)
+        result_vector = _np.zeros(m, dtype=self.dtype)
         nodes_3d_to_check = [self.root]
         while nodes_3d_to_check:
             node_3d = nodes_3d_to_check.pop()
@@ -372,9 +374,9 @@ class Tree3D:
         return result_vector
 
     # New
-    def matvec_compressed(self, dtype=None):
+    def matvec_compressed(self):
         m = len(self.root.node1.points)
-        result_vector = _np.zeros(m, dtype=dtype)
+        result_vector = _np.zeros(m, dtype=self.dtype)
         nodes_3d_to_check = [self.root]
         while nodes_3d_to_check:
             node_3d = nodes_3d_to_check.pop()
@@ -387,6 +389,27 @@ class Tree3D:
                         result_vector[rows] += (node_3d.u_vectors.T @ node_3d.v_vectors @ node_3d.vector_segment)
                 else:
                     result_vector[rows] += (node_3d.matrix_block @ node_3d.vector_segment)
+            else:
+                if node_3d.level < self.max_depth:
+                    nodes_3d_to_check.extend(node_3d.children[node_3d.children != None].flatten())
+        return result_vector
+
+    def dot(self, b):
+        m = len(self.root.node1.points)
+        result_vector = _np.zeros(m, dtype=self.dtype)
+        nodes_3d_to_check = [self.root]
+        while nodes_3d_to_check:
+            node_3d = nodes_3d_to_check.pop()
+            if node_3d.leaf:
+                rows = node_3d.node1.dof_indices
+                cols = node_3d.node2.dof_indices
+                if node_3d.adm:
+                    if node_3d.v_vectors is None:
+                        result_vector[rows] += (node_3d.matrix_block @ b[cols])
+                    else:
+                        result_vector[rows] += (node_3d.u_vectors.T @ node_3d.v_vectors @ b[cols])
+                else:
+                    result_vector[rows] += (node_3d.matrix_block @ b[cols])
             else:
                 if node_3d.level < self.max_depth:
                     nodes_3d_to_check.extend(node_3d.children[node_3d.children != None].flatten())
@@ -801,7 +824,13 @@ class Tree3D:
             height=800,
             showlegend=False
         )
+        camera = dict(
+            # eye=dict(x=1.5, y=0.0, z=0.8)
+            eye=dict(x=1.5, y=1.5, z=0.5)
+        )
+        fig.update_layout(scene_camera=camera, title=None)
         fig.show()
+        # fig.write_image("../Imágenes presentación/admisibilidad/04adm.png")
 
 if __name__ == "__main__":
     import bempp.api
