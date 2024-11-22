@@ -1,6 +1,5 @@
 import numpy as _np
 
-# TODO: Quizás sea importante acá revisar el requires_dof_transformation ???
 def get_elements_from_vertices(global2local, vertices):
     '''
     Obtain the elements associated to an array of vertices of the grid

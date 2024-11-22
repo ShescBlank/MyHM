@@ -49,7 +49,7 @@ else:
 print(f"# Vertices DOFs: {vertices.shape[1]}")
 
 t0 = time()
-octree = stt.Octree(vertices.T, dof_indices, bbox, grid.maximum_element_diameter)
+octree = stt.Octree(vertices.T, dof_indices, bbox, grid.maximum_element_diameter, max_depth=4)
 octree.generate_tree()
 print(f"Generate Octree time: {time()-t0}")
 print(f"Max Depth: {octree.max_depth}")
@@ -63,7 +63,8 @@ k = 7
 dlp = bempp.api.operators.boundary.helmholtz.double_layer(space, space, space, k)
 hyp = bempp.api.operators.boundary.helmholtz.hypersingular(space, space, space, k)
 boundary_operator = dlp
-parameters = bempp.api.GLOBAL_PARAMETERS
+# parameters = bempp.api.GLOBAL_PARAMETERS
+parameters = boundary_operator.parameters
 device_interface = "numba"
 
 # Complete matrix:
@@ -96,7 +97,12 @@ t0 = time()
 # asb.partial_dense_assembler(boundary_operator.descriptor, boundary_operator.domain, boundary_operator.dual_to_range, parameters, rows, cols)
 asb.partial_dense_assembler2(boundary_operator.descriptor, boundary_operator.domain, boundary_operator.dual_to_range, parameters, rows, cols)
 print(f"Compilation time: {time()-t0}")
-print(f"Singular adm leaves? {tree_3d.check_singular_adm_leaves(device_interface, boundary_operator, parameters)}")
+t0 = time()
+singular_matrix =  asb.singular_assembler_sparse(device_interface, boundary_operator.descriptor, boundary_operator.domain, boundary_operator.dual_to_range, parameters)
+print(f"Singular matrix calculation time: {time()-t0}")
+print(f"Singular adm leaves? {tree_3d.check_singular_adm_leaves(singular_matrix)}")
+from functools import partial
+assembler = partial(asb.partial_dense_assembler2, boundary_operator.descriptor, boundary_operator.domain, boundary_operator.dual_to_range, parameters)
 print("========================")
 
 epsilons = [2**(-1*i) for i in range(1,50,4)][:3]
@@ -129,10 +135,8 @@ for i in range(len(epsilons)):
     print()
     tree_3d.clear_compression()
 
-    MyHM.ADM_option = 2
-    MyHM.NADM_option = 2
     t0 = time()
-    tree_3d.add_compressed_matrix(ACAPP_with_assembly, device_interface, boundary_operator, parameters, epsilon=epsilons[i], verbose=False)
+    tree_3d.add_compressed_matrix(ACAPP_with_assembly, assembler, singular_matrix, epsilon=epsilons[i], verbose=False)
     tf = time()
     print(f"Time of compression w/assembler: {tf-t0} s")
     print("=>", convert_to_preferred_format(tf-t0))
@@ -143,13 +147,14 @@ for i in range(len(epsilons)):
     print("=>", convert_to_preferred_format(tf-t0))
     print("Relative error:", np.linalg.norm(result1 - aux_result) / np.linalg.norm(result1))
     print()
-    tree_3d.clear_compression()
 
     errors2.append(np.linalg.norm(result1 - aux_result) / np.linalg.norm(result1))
     used_storages.append(tree_3d.calculate_compressed_matrix_storage())
     tree_3d.pairplot(save=True, name=f"Results/Pairplot_{string_i}{grid_name}.png", extra_title=f"(epsilon = {formatted_epsilons[i]})")
     tree_3d.plot_storage_per_level(save=True, name=f"Results/Storage_per_level_{string_i}{grid_name}.png", extra_title=f"(epsilon = {formatted_epsilons[i]})")
     tree_3d.compression_imshow(save=True, name=f"Results/Imshow_{string_i}{grid_name}.png", extra_title=f"(epsilon = {formatted_epsilons[i]})")
+
+    tree_3d.clear_compression()
 
 plt.plot(epsilons, errors2, "o-", label="Relative error")
 plt.plot(epsilons, epsilons, "or--", label="Epsilon")
@@ -181,10 +186,10 @@ plt.close()
 # for i in range(2):
 #     for j in range(2):
 #         print((i,j))
-#         MyHM.ADM_option = i+1
-#         MyHM.NADM_option = j+1
+#         assembler = partial(asb.partial_dense_assembler, boundary_operator.descriptor, boundary_operator.domain, boundary_operator.dual_to_range, parameters)
+#         assembler = partial(asb.partial_dense_assembler2, boundary_operator.descriptor, boundary_operator.domain, boundary_operator.dual_to_range, parameters)
 #         t0 = time()
-#         tree_3d.add_compressed_matrix(ACAPP_with_assembly, device_interface, boundary_operator, parameters, epsilon=1e-3, verbose=False)
+#         tree_3d.add_compressed_matrix(ACAPP_with_assembly, assembler, singular_matrix, epsilon=epsilons[i], verbose=False)
 #         print(f"Time of compression: {time()-t0}")
 #         t0 = time()
 #         aux_result = tree_3d.matvec_compressed()

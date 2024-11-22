@@ -4,18 +4,18 @@ from MyHM.structures.octree import Node, Octree
 from MyHM.structures.utils import admissibility
 from MyHM.structures.utils import tuple2index
 
-# def compress_node_mp(node_3d, method, boundary_operator, parameters, singular_sm, epsilon=1e-3, verbose=False):
-#     from MyHM.assembly import partial_dense_assembler as pda
-#     from MyHM.assembly import singular_assembler_sparse as sas 
+# def compress_node_mp(node_3d, compression_function, boundary_operator, parameters, singular_matrix, epsilon=1e-3, verbose=False):
+#     from MyHM.assembly import partial_dense_assembler as assembler
+#     from MyHM.assembly import singular_assembler_sparse as singular_assembler 
 
 #     rows = node_3d.node1.dof_indices
 #     cols = node_3d.node2.dof_indices
 #     meshgrid = _np.meshgrid(rows, cols, indexing="ij")
 #     if node_3d.adm:
-#         node_3d.u_vectors, node_3d.v_vectors = method(rows, cols, boundary_operator, parameters, singular_sm, epsilon=epsilon, verbose=verbose)
+#         node_3d.u_vectors, node_3d.v_vectors = compression_function(rows, cols, assembler, boundary_operator, parameters, singular_matrix, epsilon=epsilon, verbose=verbose)
 #     else:
-#         node_3d.matrix_block = pda(boundary_operator.descriptor, boundary_operator.domain, boundary_operator.dual_to_range, parameters, rows, cols)
-#         node_3d.matrix_block = _np.array(node_3d.matrix_block + singular_sm[meshgrid[0], meshgrid[1]])
+#         node_3d.matrix_block = assembler(boundary_operator.descriptor, boundary_operator.domain, boundary_operator.dual_to_range, parameters, rows, cols)
+#         node_3d.matrix_block = _np.array(node_3d.matrix_block + singular_matrix[meshgrid[0], meshgrid[1]])
 
 # Tree 3D:
 class Node3D:
@@ -123,7 +123,7 @@ class Tree3D:
                     nodes_3d_to_check.extend(node_3d.children[node_3d.children != None].flatten())
 
     # New
-    def add_matrix_with_ACA(self, A, method, epsilon=1e-3, verbose=False):
+    def add_matrix_with_ACA(self, A, compression_function, epsilon=1e-3, verbose=False):
         """
         Adds the compressed matrix from the full matrix
         """
@@ -136,7 +136,7 @@ class Tree3D:
                 mesh = _np.meshgrid(rows, cols, indexing="ij")
                 if node_3d.adm:
                     t0_compression = time()
-                    node_3d.u_vectors, node_3d.v_vectors = method(A[mesh[0], mesh[1]], epsilon=epsilon, verbose=verbose)
+                    node_3d.u_vectors, node_3d.v_vectors = compression_function(A[mesh[0], mesh[1]], epsilon=epsilon, verbose=verbose)
                     tf_compression = time()
                     if node_3d.v_vectors is None:
                         node_3d.matrix_block = node_3d.u_vectors
@@ -152,19 +152,10 @@ class Tree3D:
                 if node_3d.level < self.max_depth:
                     nodes_3d_to_check.extend(node_3d.children[node_3d.children != None].flatten())
 
-    def add_compressed_matrix(self, method, device_interface, boundary_operator, parameters, epsilon=1e-3, verbose=False):
+    def add_compressed_matrix(self, compression_function, assembler, singular_matrix, epsilon=1e-3, verbose=False):
         """
         Adds the compressed matrix using a custom assembler (does not require the full matrix)
         """
-        from MyHM.assembly import singular_assembler_sparse as sas 
-        import MyHM
-        if MyHM.NADM_option == 1:
-            from MyHM.assembly import partial_dense_assembler as pda
-        elif MyHM.NADM_option == 2:
-            from MyHM.assembly import partial_dense_assembler2 as pda
-        
-        # Obtain singular part:
-        singular_sm = sas(device_interface, boundary_operator.descriptor, boundary_operator.domain, boundary_operator.dual_to_range, parameters) 
 
         # Traverse tree:
         nodes_3d_to_check = [self.root]
@@ -176,7 +167,7 @@ class Tree3D:
                 meshgrid = _np.meshgrid(rows, cols, indexing="ij")
                 if node_3d.adm:
                     t0_compression = time()
-                    node_3d.u_vectors, node_3d.v_vectors = method(rows, cols, boundary_operator, parameters, singular_sm, epsilon=epsilon, verbose=verbose, dtype=self.dtype)
+                    node_3d.u_vectors, node_3d.v_vectors = compression_function(rows, cols, assembler, singular_matrix, epsilon=epsilon, verbose=verbose, dtype=self.dtype)
                     tf_compression = time()
                     if node_3d.v_vectors is None:
                         node_3d.matrix_block = node_3d.u_vectors
@@ -186,31 +177,28 @@ class Tree3D:
                         node_3d.stats["compression_storage"] = _np.prod(node_3d.u_vectors.shape) + _np.prod(node_3d.v_vectors.shape)
                     node_3d.stats["compression_time"] = tf_compression - t0_compression
                 else:
-                    dense_block = pda(boundary_operator.descriptor, boundary_operator.domain, boundary_operator.dual_to_range, parameters, rows, cols, dtype=self.dtype)
-                    node_3d.matrix_block = _np.array(dense_block + singular_sm[meshgrid[0], meshgrid[1]]) # PIN
-                    # node_3d.matrix_block = (dense_block + singular_sm[meshgrid[0], meshgrid[1]]).toarray()
+                    node_3d.matrix_block = assembler(rows, cols, dtype=self.dtype)
+                    if singular_matrix is not None:
+                        node_3d.matrix_block = _np.array(node_3d.matrix_block + singular_matrix[meshgrid[0], meshgrid[1]]) # PIN
+                        # node_3d.matrix_block = (node_3d.matrix_block + singular_matrix[meshgrid[0], meshgrid[1]]).toarray()
                 node_3d.stats["full_storage"] = len(rows) * len(cols)
             else:
                 if node_3d.level < self.max_depth:
                     nodes_3d_to_check.extend(node_3d.children[node_3d.children != None].flatten())
 
-    def add_compressed_matrix2(self, method, device_interface, boundary_operator, parameters, epsilon=1e-3, verbose=False):
+    def add_compressed_matrix2(self, compression_function, assembler, singular_matrix, epsilon=1e-3, verbose=False):
         """
         Adds the compressed matrix using a custom assembler (does not require the full matrix)
         """
-        from MyHM.assembly import partial_dense_assembler as pda
-        from MyHM.assembly import singular_assembler_sparse as sas 
-        
-        # Obtain singular part:
-        singular_sm = sas(device_interface, boundary_operator.descriptor, boundary_operator.domain, boundary_operator.dual_to_range, parameters)
 
         for node_3d in self.nadm_leaves:
             rows = node_3d.node1.dof_indices
             cols = node_3d.node2.dof_indices
             meshgrid = _np.meshgrid(rows, cols, indexing="ij")
             # node_3d.matrix_block = _np.zeros((len(rows), len(cols)), dtype=self.dtype)
-            node_3d.matrix_block = pda(boundary_operator.descriptor, boundary_operator.domain, boundary_operator.dual_to_range, parameters, rows, cols, dtype=self.dtype)
-            node_3d.matrix_block = _np.array(node_3d.matrix_block + singular_sm[meshgrid[0], meshgrid[1]])
+            node_3d.matrix_block = assembler(rows, cols, dtype=self.dtype)
+            if singular_matrix is not None:
+                node_3d.matrix_block = _np.array(node_3d.matrix_block + singular_matrix[meshgrid[0], meshgrid[1]])
             node_3d.stats["full_storage"] = len(rows) * len(cols)
 
         for node_3d in self.adm_leaves:
@@ -218,7 +206,7 @@ class Tree3D:
             cols = node_3d.node2.dof_indices
             meshgrid = _np.meshgrid(rows, cols, indexing="ij")
             t0_compression = time()
-            node_3d.u_vectors, node_3d.v_vectors = method(rows, cols, boundary_operator, parameters, singular_sm, epsilon=epsilon, verbose=verbose, dtype=self.dtype)
+            node_3d.u_vectors, node_3d.v_vectors = compression_function(rows, cols, assembler, singular_matrix, epsilon=epsilon, verbose=verbose, dtype=self.dtype)
             tf_compression = time()
             if node_3d.v_vectors is None:
                 node_3d.matrix_block = node_3d.u_vectors
@@ -247,8 +235,8 @@ class Tree3D:
                 if node_3d.level < self.max_depth:
                     nodes_3d_to_check.extend(node_3d.children[node_3d.children != None].flatten())
 
-    # def add_compressed_matrix_mp(self, method, device_interface, boundary_operator, parameters, epsilon=1e-3, verbose=False):
-    #     from MyHM.assembly import singular_assembler_sparse as sas 
+    # def add_compressed_matrix_mp(self, compression_function, device_interface, boundary_operator, parameters, epsilon=1e-3, verbose=False):
+    #     from MyHM.assembly import singular_assembler_sparse as singular_assembler 
     #     from MyHM.structures.utils import wrap_classes, unwrap_classes
 
     #     from joblib import Parallel
@@ -258,15 +246,15 @@ class Tree3D:
     #     # from itertools import repeat
 
     #     # Obtain singular part:
-    #     singular_sm = sas(device_interface, boundary_operator.descriptor, boundary_operator.domain, boundary_operator.dual_to_range, parameters) 
+    #     singular_matrix = singular_assembler(device_interface, boundary_operator.descriptor, boundary_operator.domain, boundary_operator.dual_to_range, parameters) 
 
     #     # Wrap classes to pickle:
     #     prev_grid_datas = wrap_classes(boundary_operator)
         
     #     # # Joblib:
     #     parallel_compression = delayed(compress_node_mp)
-    #     parallel_tasks_adm = [parallel_compression(self.adm_leaves[i], method, boundary_operator, parameters, singular_sm, epsilon, verbose) for i in range(len(self.adm_leaves))]
-    #     parallel_tasks_nadm = [parallel_compression(self.nadm_leaves[i], method, boundary_operator, parameters, singular_sm, epsilon, verbose) for i in range(len(self.nadm_leaves))]
+    #     parallel_tasks_adm = [parallel_compression(self.adm_leaves[i], compression_function, boundary_operator, parameters, singular_matrix, epsilon, verbose) for i in range(len(self.adm_leaves))]
+    #     parallel_tasks_nadm = [parallel_compression(self.nadm_leaves[i], compression_function, boundary_operator, parameters, singular_matrix, epsilon, verbose) for i in range(len(self.nadm_leaves))]
     #     with Parallel(n_jobs=-1, verbose=10) as parallel_pool:
     #         parallel_pool(parallel_tasks_adm)
     #         parallel_pool(parallel_tasks_nadm)
@@ -277,10 +265,10 @@ class Tree3D:
     #     #     compress_node_mp,
     #     #     zip(
     #     #         self.adm_leaves,
-    #     #         repeat(method),
+    #     #         repeat(compression_function),
     #     #         repeat(boundary_operator),
     #     #         repeat(parameters),
-    #     #         repeat(singular_sm),
+    #     #         repeat(singular_matrix),
     #     #         repeat(epsilon),
     #     #         repeat(verbose),
     #     #     ),
@@ -375,6 +363,7 @@ class Tree3D:
 
     # New
     def matvec_compressed(self):
+        # TODO: Probar con un "from collections import deque" -> deque([lista]) -> deque.popleft() deque.extend()
         m = len(self.root.node1.points)
         result_vector = _np.zeros(m, dtype=self.dtype)
         nodes_3d_to_check = [self.root]
@@ -420,17 +409,13 @@ class Tree3D:
         # chequear que efectivamente estén todas las hojas del árbol en las listas.
         pass
 
-    def check_singular_adm_leaves(self, device_interface, boundary_operator, parameters):
-        from MyHM.assembly import singular_assembler_sparse as sas 
-        
-        # Obtain singular part:
-        singular_sm = sas(device_interface, boundary_operator.descriptor, boundary_operator.domain, boundary_operator.dual_to_range, parameters) 
+    def check_singular_adm_leaves(self, singular_matrix):
 
         for node_3d in self.adm_leaves:
             rows = node_3d.node1.dof_indices
             cols = node_3d.node2.dof_indices
             meshgrid = _np.meshgrid(rows, cols, indexing="ij")
-            if singular_sm[meshgrid[0], meshgrid[1]].nnz != 0:
+            if singular_matrix[meshgrid[0], meshgrid[1]].nnz != 0:
                 return True
         return False
 

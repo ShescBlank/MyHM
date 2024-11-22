@@ -39,7 +39,7 @@ lambda_min = 2 * np.pi / (k_max) # Define the smallest wavelength
 
 '''         Grid         '''
 # Creates the grid
-vox_per_wave = 14
+vox_per_wave = 16
 space, idx_int, idx_ext, surf_grid, w, sw, normals = concentric_cubes(l_cube_int, l_cube_ext, lambda_min, vox_per_wave=vox_per_wave)
 dx = abs(space[0, 2] - space[1, 2])
 
@@ -214,7 +214,7 @@ for index in range(len(As)):
     b = np.random.rand(A.shape[1])
     print(f"{index}) {names[index]}")
     print("Shape A:\t", A.shape)
-    print("Shape Tree3D:\t", tree_3d.shape())
+    print("Shape Tree3D:\t", tree_3d.shape)
     print("Spy A:")
     plt.spy(A)
     plt.title(f"Matrix: {names[index]}")
@@ -258,6 +258,8 @@ for index in range(len(As)):
         tree_3d.plot_storage_per_level(save=True, name=f"Results/{names[index]}/Storage_per_level_{string_i}.png", extra_title=f"(epsilon = {formatted_epsilons[i]})")
         tree_3d.compression_imshow(save=True, name=f"Results/{names[index]}/Imshow_{string_i}.png", extra_title=f"(epsilon = {formatted_epsilons[i]})")
 
+        tree_3d.clear_compression()
+
     plt.plot(epsilons, errors2, "o-", label="Relative error")
     plt.plot(epsilons, epsilons, "or--", label="Epsilon")
     plt.gca().invert_xaxis()
@@ -288,6 +290,5 @@ for index in range(len(As)):
     plt.close()
 
     print(f"\n{'='*100}\n")
-
-    tree_3d.clear_compression()
+ 
     del A, b

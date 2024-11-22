@@ -128,6 +128,8 @@
 import numpy as np
 from vsie.operators.cross_interaction import cross_single_layer, cross_double_layer, cross_ad_double_layer
 from vsie.operators.self_interaction import single_layer, double_layer, ad_double_layer, mass_matrix
+from vsie.operators.cross_interaction import cross_single_layer_partial, cross_double_layer_partial, cross_ad_double_layer_partial
+from vsie.operators.self_interaction import single_layer_partial, double_layer_partial, ad_double_layer_partial
 from vsie.operators.wave_op import incident_plane
 from vsie.geometry.grid import concentric_cubes
 from vsie.geometry.space_fun import physical_functions, discont_physical_functions, anal_grad, surface_dif, max_wavenumber
@@ -138,7 +140,7 @@ from scipy.sparse.linalg import gmres
 import bempp.api
 import numpy as np
 import MyHM.structures as stt
-from MyHM.compression.aca import ACAPP
+from MyHM.compression.aca import ACAPP, ACAPP_with_assembly
 from time import time
 import pandas as pd
 import seaborn as sns
@@ -244,7 +246,7 @@ ext_grad_alpha = anal_grad(ext_cube, ext_density, ext_density_x, ext_density_y, 
 '''        Operators       '''
 
 # Evaluate operators
-print("Evaluating operators...\n")
+print("\nEvaluating operators...")
 t0 = time()
 mass_op_ext = mass_matrix(ext_cube, ext_alpha, rho_0)
 mass_op_int = mass_matrix(int_cube, int_alpha, rho_0)
@@ -409,12 +411,31 @@ tree_3d_int_int2 = deepcopy(tree_3d_int_int)
 tree_3d_bdy_int2 = deepcopy(tree_3d_bdy_int)
 tree_3d_ext_int2 = deepcopy(tree_3d_ext_int)
 As      = [sl_op_ext,       sl_op_int,       sl_op_bdy_ext,   sl_op_bdy_int,   sl_op_ext_int,   sl_op_int_ext,   dl_op_ext_bdy,   dl_op_int_bdy,   dl_op_bdy,       ad_dl_op_ext,    ad_dl_op_int,     ad_dl_op_bdy_ext,   ad_dl_op_bdy_int,    ad_dl_op_ext_int,   ad_dl_op_int_ext]
-trees   = [tree_3d_ext_ext, tree_3d_int_int, tree_3d_bdy_ext, tree_3d_bdy_int, tree_3d_ext_int, tree_3d_int_ext, tree_3d_ext_bdy, tree_3d_int_bdy, None,            None,            tree_3d_int_int2, None,               tree_3d_bdy_int2,    tree_3d_ext_int2,    None]
+trees   = [tree_3d_ext_ext, tree_3d_int_int, tree_3d_bdy_ext, tree_3d_bdy_int, tree_3d_ext_int, tree_3d_int_ext, tree_3d_ext_bdy, tree_3d_int_bdy, None,            None,            tree_3d_int_int2, None,               tree_3d_bdy_int2,    tree_3d_ext_int2,   None]
 names   = ["sl_op_ext",     "sl_op_int",     "sl_op_bdy_ext", "sl_op_bdy_int", "sl_op_ext_int", "sl_op_int_ext", "dl_op_ext_bdy", "dl_op_int_bdy", "None",          "None",          "ad_dl_op_int",   "None",             "ad_dl_op_bdy_int",  "ad_dl_op_ext_int", "None"]
 # trees = [tree_3d_ext_ext, tree_3d_int_int, tree_3d_bdy_ext, tree_3d_bdy_int, tree_3d_ext_int, tree_3d_int_ext, tree_3d_ext_bdy, tree_3d_int_bdy, tree_3d_bdy_bdy, tree_3d_ext_ext, tree_3d_int_int, tree_3d_bdy_ext,     tree_3d_bdy_int,     tree_3d_ext_int,    tree_3d_int_ext]
 
 # empty: ad_dl_op_bdy_ext, ad_dl_op_ext, ad_dl_op_int_ext
 # blocks with zeros: dl_op_bdy
+
+from functools import partial
+partial_assemblers = [
+    partial(single_layer_partial, kappa, ext_cube, ext_alpha, ext_beta, ext_w),
+    partial(single_layer_partial, kappa, int_cube, int_alpha, int_beta, int_w),
+    partial(cross_single_layer_partial, kappa, surf_grid, ext_cube, ext_alpha, ext_beta, ext_w),
+    partial(cross_single_layer_partial, kappa, surf_grid, int_cube, int_alpha, int_beta, int_w),
+    partial(cross_single_layer_partial, kappa, ext_cube, int_cube, int_alpha, int_beta, int_w),
+    partial(cross_single_layer_partial, kappa, int_cube, ext_cube, ext_alpha, ext_beta, ext_w),
+    partial(cross_double_layer_partial, kappa, ext_cube, surf_grid, normals, diff_alpha, sw),
+    partial(cross_double_layer_partial, kappa, int_cube, surf_grid, normals, diff_alpha, sw),
+    partial(double_layer_partial, kappa, surf_grid, normals, diff_alpha, sw),
+    partial(ad_double_layer_partial, kappa, ext_cube, ext_grad_alpha, ext_w),
+    partial(ad_double_layer_partial, kappa, int_cube, int_grad_alpha, int_w),
+    partial(cross_ad_double_layer_partial, kappa, surf_grid, ext_cube, ext_grad_alpha, ext_w),
+    partial(cross_ad_double_layer_partial, kappa, surf_grid, int_cube, int_grad_alpha, int_w),
+    partial(cross_ad_double_layer_partial, kappa, ext_cube, int_cube, int_grad_alpha, int_w),
+    partial(cross_ad_double_layer_partial, kappa, int_cube, ext_cube, ext_grad_alpha, ext_w),
+]
 
 # Plot for each epsilon:
 epsilons = [2**(-1*i) for i in range(1,50,4)][:4]
@@ -434,6 +455,7 @@ for i in range(len(epsilons)):
 
         A = As[index]
         tree_3d = trees[index]
+        partial_assembler = partial_assemblers[index]
         print(f"{index}) {names[index]}")
         print("Shape A:\t", A.shape)
         print("Shape Tree3D:\t", tree_3d.shape)
@@ -442,6 +464,11 @@ for i in range(len(epsilons)):
         tree_3d.add_matrix_with_ACA(A, ACAPP, epsilon=epsilons[i], verbose=False)
         tf = time()
         print(f"Time of compression w/o assembler and w/assembled_values: {tf-t0} s")
+
+        # t0 = time()
+        # tree_3d.add_compressed_matrix(ACAPP_with_assembly, partial_assembler, None, epsilon=epsilons[i], verbose=False)
+        # tf = time()
+        # print(f"Time of compression w/assembler: {tf-t0} s")
 
     blocked_tree = stt.BlockedTree((mass_op_ext.shape[0], sl_op_bdy_ext.shape[0], sl_op_int_ext.shape[0]), (mass_op_ext.shape[1], dl_op_ext_bdy.shape[1], sl_op_ext_int.shape[1]), dtype=np.complex128)
     blocked_tree.add(mass_op_ext, (0,0), 1.0) # mass_op_ext

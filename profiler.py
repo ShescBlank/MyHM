@@ -46,4 +46,8 @@ matrix_wf = boundary_operator.weak_form() # Without compiling
 A = np.array(matrix_wf.A)
 
 # Compressed matrix in tree:
-tree_3d.add_compressed_matrix(ACAPP_with_assembly, device_interface, boundary_operator, parameters, epsilon=1e-3, verbose=False)
+import MyHM.assembly as asb
+from functools import partial
+singular_matrix =  asb.singular_assembler_sparse(device_interface, boundary_operator.descriptor, boundary_operator.domain, boundary_operator.dual_to_range, parameters)
+assembler = partial(asb.partial_dense_assembler2, boundary_operator.descriptor, boundary_operator.domain, boundary_operator.dual_to_range, parameters)
+tree_3d.add_compressed_matrix(ACAPP_with_assembly, assembler, singular_matrix, epsilon=1e-3, verbose=Fals)

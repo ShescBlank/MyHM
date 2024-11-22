@@ -1,10 +1,13 @@
 import numpy as _np
 from scipy.sparse import lil_matrix
 
+# TODO: En teoría puedo limpiar un poco los códigos, como quitar las listas I y J, sacar el first_abs_delta. Y decidir que hacer con la parte singular
+
 # https://www.epfl.ch/labs/anchp/wp-content/uploads/2018/10/lecture4-slides.pdf
 # https://web.archive.org/web/20060903235945id_/http://esl.eng.ohio-state.edu/~csg/papers/79.pdf
 def ACAPP(A, epsilon = 0.1, verbose=False):
-    R = _np.copy(A)
+    # R = _np.copy(A)
+    R = A
     m, n = R.shape
     assembled_values = lil_matrix((m, n), dtype=R.dtype)
     mask_row = _np.zeros(n, dtype=bool)
@@ -29,11 +32,11 @@ def ACAPP(A, epsilon = 0.1, verbose=False):
             aux = _np.asarray(u_vectors)[:, i_star].T @ _np.asarray(v_vectors)
 
         # Row of original matrix:
-        # R_row = R[i_star, :] - aux # Old version
+        R_row = R[i_star, :] - aux # Old version
         if mask_col[i_star] != True and _np.sum(~mask_row) > 0:
-            assembled_values[i_star, ~mask_row] = R[i_star, ~mask_row]
+        #     assembled_values[i_star, ~mask_row] = R[i_star, ~mask_row]
             mask_col[i_star] = True
-        R_row = assembled_values[i_star, :].toarray().flatten() - aux
+        # R_row = assembled_values[i_star, :].toarray().flatten() - aux
 
         R_row_copy = _np.copy(R_row)
         R_row_copy[J] = 0
@@ -72,11 +75,11 @@ def ACAPP(A, epsilon = 0.1, verbose=False):
                 aux = _np.asarray(v_vectors)[:, j_star].T @ _np.asarray(u_vectors)
 
             # Column of original matrix:
-            # u = R[:, j_star] - aux # Old version
+            u = R[:, j_star] - aux # Old version
             if mask_row[j_star] != True and _np.sum(~mask_col) > 0:
-                assembled_values[~mask_col, j_star] = R[~mask_col, j_star]
+            #     assembled_values[~mask_col, j_star] = R[~mask_col, j_star]
                 mask_row[j_star] = True
-            u = assembled_values[:, j_star].toarray().flatten() - aux
+            # u = assembled_values[:, j_star].toarray().flatten() - aux
 
             k += 1
             u_vectors.append(u)
@@ -89,11 +92,12 @@ def ACAPP(A, epsilon = 0.1, verbose=False):
 
         # Check if compression is still viable:
         if len(u_vectors) * len(u_vectors[0]) + len(v_vectors) * len(v_vectors[0]) > m * n:
-            matrix = assembled_values.toarray()
-            if _np.sum(~mask_col) > 0 and _np.sum(~mask_row) > 0:
-                meshgrid = _np.meshgrid(_np.arange(m)[~mask_col], _np.arange(n)[~mask_row], indexing="ij")
-                matrix[meshgrid[0], meshgrid[1]] = R[meshgrid[0], meshgrid[1]]
-            return matrix, None
+            return A, None # Old version
+            # matrix = assembled_values.toarray()
+            # if _np.sum(~mask_col) > 0 and _np.sum(~mask_row) > 0:
+            #     meshgrid = _np.meshgrid(_np.arange(m)[~mask_col], _np.arange(n)[~mask_row], indexing="ij")
+            #     matrix[meshgrid[0], meshgrid[1]] = R[meshgrid[0], meshgrid[1]]
+            # return matrix, None
 
         # Stopping criterion:
         u = u_vectors[-1]
@@ -102,10 +106,19 @@ def ACAPP(A, epsilon = 0.1, verbose=False):
         norm_v = _np.linalg.norm(v)
         sum_uv_norm_square += norm_u**2 * norm_v**2
         error_rel = norm_u * norm_v / _np.sqrt(sum_uv_norm_square)
+        # error_rel = _np.linalg.norm(A-_np.asarray(u_vectors).T @ _np.asarray(v_vectors)) / _np.linalg.norm(A) # Estimación perfecta # TODO:
         if error_rel <= epsilon or len(u_vectors) == min(m, n): # Epsilon reached or rank completed
             # print("Reached Epsilon")
             exit_code = 1
             break
+
+        # Otras formas de estimar: (se pueden agregar )
+        # TODO: si estimáramos mejor el error, no habría problemas en las matrices con bloques de ceros.
+        # 1) Literatura original: norm_u * norm_v <= epsilon
+        # 2) Literatura original: norm_u * norm_v / _np.linalg.norm(u_vectors[0]) * _np.linalg.norm(v_vectors[0]) <= epsilon
+        # 3) Literatura extra (al inicio del script):
+        # for index in range(k - 1):
+        #     sum_uv_norm_square += 2 * _np.abs(_np.dot(u_vectors[index], u)) * _np.abs(_np.dot(v_vectors[index], v))
 
     if verbose:
         # print(f"Finished in k={k} out of {m}")
@@ -128,13 +141,7 @@ def ACAPP(A, epsilon = 0.1, verbose=False):
 
     return _np.array(u_vectors), _np.array(v_vectors)
 
-def ACAPP_with_assembly(rows, cols, boundary_operator, parameters, singular_matrix, epsilon = 0.1, verbose=False, dtype=_np.complex128):
-    import MyHM
-    if MyHM.ADM_option == 1:
-        from MyHM.assembly import partial_dense_assembler as pda
-    elif MyHM.ADM_option == 2:
-        from MyHM.assembly import partial_dense_assembler2 as pda
-
+def ACAPP_with_assembly(rows, cols, assembler, singular_matrix, epsilon = 0.1, verbose=False, dtype=_np.complex128):
     rows = _np.asarray(rows)
     cols = _np.asarray(cols)
 
@@ -161,11 +168,12 @@ def ACAPP_with_assembly(rows, cols, boundary_operator, parameters, singular_matr
         
         # Row of original matrix:
         if mask_col[i_star] != True and _np.sum(~mask_row) > 0:
-            assembled_values[i_star, ~mask_row] = pda(boundary_operator.descriptor, boundary_operator.domain, boundary_operator.dual_to_range, parameters, [rows[i_star]], cols[~mask_row], dtype=dtype) # PIN
-            # assembled_values[i_star:i_star+1, ~mask_row] = pda(boundary_operator.descriptor, boundary_operator.domain, boundary_operator.dual_to_range, parameters, [rows[i_star]], cols[~mask_row], dtype=dtype)
+            assembled_values[i_star, ~mask_row] = assembler([rows[i_star]], cols[~mask_row], dtype=dtype) # PIN
+            # assembled_values[i_star:i_star+1, ~mask_row] = assembler([rows[i_star]], cols[~mask_row], dtype=dtype)
             mask_col[i_star] = True
         R_row = assembled_values[i_star, :].toarray()
-        # R_row = _np.array(R_row + singular_matrix[rows[i_star], cols])
+        # if singular_matrix is not None:
+        #     R_row = _np.array(R_row + singular_matrix[rows[i_star], cols])
 
         R_row = R_row.flatten()
         R_row -= aux
@@ -204,11 +212,12 @@ def ACAPP_with_assembly(rows, cols, boundary_operator, parameters, singular_matr
             
             # Column of original matrix:
             if mask_row[j_star] != True and _np.sum(~mask_col) > 0:
-                assembled_values[~mask_col, j_star] = pda(boundary_operator.descriptor, boundary_operator.domain, boundary_operator.dual_to_range, parameters, rows[~mask_col], [cols[j_star]], dtype=dtype) # PIN
-                # assembled_values[~mask_col, j_star:j_star+1] = pda(boundary_operator.descriptor, boundary_operator.domain, boundary_operator.dual_to_range, parameters, rows[~mask_col], [cols[j_star]], dtype=dtype)
+                assembled_values[~mask_col, j_star] = assembler(rows[~mask_col], [cols[j_star]], dtype=dtype) # PIN
+                # assembled_values[~mask_col, j_star:j_star+1] = assembler(rows[~mask_col], [cols[j_star]], dtype=dtype)
                 mask_row[j_star] = True
             u = assembled_values[:, j_star].toarray()
-            # u = _np.array(u + singular_matrix[rows, cols[j_star]])
+            # if singular_matrix is not None:
+                # u = _np.array(u + singular_matrix[rows, cols[j_star]])
             
             u = u.flatten()
             u -= aux
@@ -226,7 +235,7 @@ def ACAPP_with_assembly(rows, cols, boundary_operator, parameters, singular_matr
             matrix = assembled_values.toarray()
             if _np.sum(~mask_col) > 0 and _np.sum(~mask_row) > 0:
                 meshgrid = _np.meshgrid(_np.arange(m)[~mask_col], _np.arange(n)[~mask_row], indexing="ij")
-                matrix[meshgrid[0], meshgrid[1]] = pda(boundary_operator.descriptor, boundary_operator.domain, boundary_operator.dual_to_range, parameters, rows[~mask_col], cols[~mask_row])
+                matrix[meshgrid[0], meshgrid[1]] = assembler(rows[~mask_col], cols[~mask_row], dtype=dtype)
             return matrix, None
 
         # Stopping criterion:
