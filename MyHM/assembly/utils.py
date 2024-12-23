@@ -67,8 +67,8 @@ def create_fun_index_masks_and_offsets(rows, cols, n_test_elements, n_trial_elem
     test_fun_index_mask = _np.isin(test_partial_dofs, rows)
     trial_fun_index_mask = _np.isin(trial_partial_dofs, cols)
 
-    test_offsets = _np.empty(n_test_elements + 1, dtype="uint32")   #TODO: uint64?
-    trial_offsets = _np.empty(n_trial_elements + 1, dtype="uint32") #TODO: uint64?
+    test_offsets = _np.empty(n_test_elements + 1, dtype="uint64")   #TODO: uint64?
+    trial_offsets = _np.empty(n_trial_elements + 1, dtype="uint64") #TODO: uint64?
     test_offsets[0] = 0
     trial_offsets[0] = 0
     test_offsets[1:] = _np.cumsum(_np.sum(test_fun_index_mask, axis=1))

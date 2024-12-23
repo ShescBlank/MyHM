@@ -32,12 +32,15 @@ class Octree:
         # la cantidad de hijos, se pueden dejar vacíos no más y así no cambia la estructura del árbol))
         self.root = Node(parent=None, id="0", level=0, bbox=bbox)
         self.root.points = list(points)
-        self.root.dof_indices = dof_indices
+        self.root.dof_indices = _np.array(dof_indices) # Se revisa automático si int32 o int64 y después numba debe identificar este dtype
         if max_depth:
             self.max_depth =int(max_depth)
         else:
             min_length = _np.min(_np.abs(bbox[:,1] - bbox[:,0]))
-            self.max_depth = int(_np.ceil(_np.log2(min_length/(2*max_element_diameter)))) # Para ser más precisos, debería ser floor
+            self.max_depth = int(_np.floor(_np.log2(min_length/(2*max_element_diameter)))) # TODO: Decidir si floor o ceil
+        if self.max_depth < 2:
+            import warnings
+            warnings.warn("The maximum depth is less than 2, so the nodes will not be able to be compressed")
         self.min_block_size = min_block_size
         self.max_element_diameter = max_element_diameter
 
@@ -83,8 +86,10 @@ class Octree:
             # Repeat process until max_depth is reached and with valid children:
             for child in node.children:
                 # if child and child.level < self.max_depth and child.points:
-                if child and child.level < self.max_depth:
-                    nodes_to_add.append(child)
+                if child:
+                    child.dof_indices = _np.array(child.dof_indices) # Esto también lo realizo para la compresión con Numba (toma el dtype de la parte anterior)
+                    if child.level < self.max_depth:
+                        nodes_to_add.append(child)
 
     def check_valid_tree(self, node):
         total = len(node.points)
@@ -157,7 +162,12 @@ class Octree:
             height=800,
             showlegend=False
         )
+        camera = dict(
+            eye=dict(x=1.5, y=1.5, z=0.5)
+        )
+        fig.update_layout(scene_camera=camera, title=None)
         fig.show()
+        # fig.write_image("../Imágenes presentación/6bbox.png")
 
     def plot_children(self, node):
         assert node != None, "Node is Null"
@@ -200,7 +210,12 @@ class Octree:
             height=800,
             showlegend=False
         )
+        camera = dict(
+            eye=dict(x=1.5, y=1.5, z=0.5)
+        )
+        fig.update_layout(scene_camera=camera, title=None)
         fig.show()
+        # fig.write_image("../Imágenes presentación/10bbox.png")
 
 
 if __name__ == "__main__":

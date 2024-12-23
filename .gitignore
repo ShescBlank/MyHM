@@ -1,10 +1,10 @@
 .ipynb_checkpoints
 __pycache__/
-grids/
-Results/
-Inputs/
-vsie/
-VSIE_notebook.ipynb
-notebook_skull_slab.ipynb
-Voxels skull slab/
-Validación pipeline Skull Slab/
+/grids/
+/Results/
+/Inputs/
+/vsie/
+/VSIE_notebook.ipynb
+/notebook_skull_slab.ipynb
+/Voxels data/
+/Experiments/

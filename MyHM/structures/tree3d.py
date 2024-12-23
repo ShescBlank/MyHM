@@ -123,7 +123,7 @@ class Tree3D:
                     nodes_3d_to_check.extend(node_3d.children[node_3d.children != None].flatten())
 
     # New
-    def add_matrix_with_ACA(self, A, compression_function, epsilon=1e-3, verbose=False):
+    def add_matrix_with_ACA(self, A, compression_function, epsilon=1e-3, exact_error=False):
         """
         Adds the compressed matrix from the full matrix
         """
@@ -136,7 +136,7 @@ class Tree3D:
                 mesh = _np.meshgrid(rows, cols, indexing="ij")
                 if node_3d.adm:
                     t0_compression = time()
-                    node_3d.u_vectors, node_3d.v_vectors = compression_function(A[mesh[0], mesh[1]], epsilon=epsilon, verbose=verbose)
+                    node_3d.u_vectors, node_3d.v_vectors = compression_function(A[mesh[0], mesh[1]], epsilon=epsilon, exact_error=exact_error)
                     tf_compression = time()
                     if node_3d.v_vectors is None:
                         node_3d.matrix_block = node_3d.u_vectors
@@ -216,6 +216,57 @@ class Tree3D:
                 node_3d.stats["compression_storage"] = _np.prod(node_3d.u_vectors.shape) + _np.prod(node_3d.v_vectors.shape)
             node_3d.stats["compression_time"] = tf_compression - t0_compression
             node_3d.stats["full_storage"] = len(rows) * len(cols)
+
+    def add_compressed_matrix_numba(self, info, info_class, numba_assembler, epsilon):
+        """
+        Adds the compressed matrix using a custom assembler (does not require the full matrix)
+        """
+        from numba.typed import List
+        from MyHM.numba import wrapper_compression_numba
+        from time import time
+
+        # Get arguments:
+        nodes_rows = []
+        nodes_cols = []
+        n_nadm = len(self.nadm_leaves)
+        for node_3d in self.nadm_leaves:
+            nodes_rows.append(node_3d.node1.dof_indices)
+            nodes_cols.append(node_3d.node2.dof_indices)
+        for node_3d in self.adm_leaves:
+            nodes_rows.append(node_3d.node1.dof_indices)
+            nodes_cols.append(node_3d.node2.dof_indices)
+        nodes_rows = List(nodes_rows)
+        nodes_cols = List(nodes_cols)
+        
+        # Compilation:
+        t0 = time()
+        parallel_compression_numba = wrapper_compression_numba(nodes_rows, info_class, numba_assembler, self.dtype)
+        # parallel_compression_nadm_numba, parallel_compression_adm_numba = wrapper_compression_numba(nodes_rows, info_class, numba_assembler, self.dtype)
+        tf = time()
+        print("Compilation time:", tf-t0, "s")
+        # print(numba_assembler.signatures)
+
+        # Call to njit function:
+        results_nadm, results_adm = parallel_compression_numba(nodes_rows, nodes_cols, info, numba_assembler, n_nadm, epsilon, self.dtype)
+        # results_nadm = parallel_compression_nadm_numba(nodes_rows[:n_nadm], nodes_cols[:n_nadm], info, numba_assembler, self.dtype)
+        # results_adm =  parallel_compression_adm_numba(nodes_rows[n_nadm:], nodes_cols[n_nadm:], info, numba_assembler, epsilon, self.dtype)
+
+        # Save results in tree:
+        for i in range(len(self.nadm_leaves)):
+            node_3d = self.nadm_leaves[i]
+            node_3d.matrix_block = results_nadm[i]
+            node_3d.stats["full_storage"] = len(node_3d.node1.dof_indices) * len(node_3d.node2.dof_indices)
+        for i in range(len(self.adm_leaves)):
+            node_3d = self.adm_leaves[i]
+            node_3d.u_vectors, node_3d.v_vectors = results_adm[i]
+            if node_3d.v_vectors.shape[1] == 0:
+                node_3d.matrix_block = node_3d.u_vectors
+                node_3d.u_vectors = None
+                node_3d.v_vectors = None
+                node_3d.stats["compression_storage"] = _np.prod(node_3d.matrix_block.shape)
+            else:
+                node_3d.stats["compression_storage"] = _np.prod(node_3d.u_vectors.shape) + _np.prod(node_3d.v_vectors.shape)
+            node_3d.stats["full_storage"] = len(node_3d.node1.dof_indices) * len(node_3d.node2.dof_indices)
 
     def clear_compression(self):
         """
