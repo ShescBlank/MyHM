@@ -29,10 +29,10 @@ from MyHM.numba.aca import ACAPP_numba
 #     return parallel_compression_nadm_numba, parallel_compression_adm_numba
 
 # Versión todo junto:
-def wrapper_compression_numba(list_dofs, info_class, numba_assembler, dtype):
+def wrapper_compression_numba(list_dofs, info_class, numba_assembler, numba_compressor, dtype):
 
-    @njit((typeof(list_dofs), typeof(list_dofs), info_class.class_type.instance_type, typeof(numba_assembler), int64, float64, typeof(dtype)), parallel=True, cache=True)
-    def parallel_compression_numba(nodes_rows, nodes_cols, info, numba_assembler, n_nadm, epsilon, dtype):
+    @njit((typeof(list_dofs), typeof(list_dofs), info_class.class_type.instance_type, typeof(numba_assembler), typeof(numba_compressor), int64, float64, typeof(dtype)), parallel=True, cache=True)
+    def parallel_compression_numba(nodes_rows, nodes_cols, info, numba_assembler, numba_compressor, n_nadm, epsilon, dtype):
         n_adm = len(nodes_rows) - n_nadm
         results_nadm = [np.empty((0,0), dtype=dtype)] * (n_nadm)
         results_adm = [(np.empty((0,0), dtype=dtype), np.empty((0,0), dtype=dtype))] * (n_adm)
@@ -45,8 +45,8 @@ def wrapper_compression_numba(list_dofs, info_class, numba_assembler, dtype):
             if index < 0: # Uso esto para evitar un warning
                 results_nadm[index] = numba_assembler(rows, cols, info, dtype)
             else:
-                # results_adm[index - n_nadm] = ACAPP_numba(rows, cols, info, numba_assembler, epsilon, dtype)
-                results_adm[index] = ACAPP_numba(rows, cols, info, numba_assembler, epsilon, dtype)
+                # results_adm[index - n_nadm] = numba_compressor(rows, cols, info, numba_assembler, epsilon, dtype)
+                results_adm[index] = numba_compressor(rows, cols, info, numba_assembler, epsilon, dtype)
         return results_nadm, results_adm
 
     return parallel_compression_numba

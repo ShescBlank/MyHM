@@ -17,7 +17,7 @@ def ACAPP(A, epsilon = 0.1, exact_error=False):
     v_vectors = []
 
     # Stopping criterion:
-    sum_uv_norm_square = 0
+    Fnorm_square = 0
     norm_A = _np.linalg.norm(A)
     
     while True:
@@ -79,14 +79,14 @@ def ACAPP(A, epsilon = 0.1, exact_error=False):
         v = v_vectors[-1]
         norm_u = _np.linalg.norm(u)
         norm_v = _np.linalg.norm(v)
-        sum_uv_norm_square += norm_u**2 * norm_v**2
+        Fnorm_square += norm_u**2 * norm_v**2
         # NEW PAPER ============
         aux = 0
         for index in range(k - 1):
             aux += _np.vdot(u_vectors[index], u) * _np.vdot(v_vectors[index], v)
-        sum_uv_norm_square += 2 * _np.real(aux)
+        Fnorm_square += 2 * _np.real(aux)
         # ============ NEW PAPER
-        error_rel = norm_u * norm_v / _np.sqrt(sum_uv_norm_square)
+        error_rel = norm_u * norm_v / _np.sqrt(Fnorm_square)
         condition = error_rel <= epsilon
         # error_rel2 = norm_u * norm_v / (_np.linalg.norm(u_vectors[0]) * _np.linalg.norm(v_vectors[0]))
         # error_rel3 = _np.linalg.norm(u) * _np.linalg.norm(v)
@@ -103,7 +103,7 @@ def ACAPP(A, epsilon = 0.1, exact_error=False):
         # 2) Literatura original: norm_u * norm_v / (_np.linalg.norm(u_vectors[0]) * _np.linalg.norm(v_vectors[0])) <= epsilon
         # 3) Literatura extra (al inicio del script):
         # for index in range(k - 1):
-        #     sum_uv_norm_square += 2 * _np.abs(_np.dot(u_vectors[index], u)) * _np.abs(_np.dot(v_vectors[index], v))
+        #     Fnorm_square += 2 * _np.abs(_np.dot(u_vectors[index], u)) * _np.abs(_np.dot(v_vectors[index], v))
 
     # Esto es para encontrar bloques que estén ocasionando un error muy grande:
     # if _np.log10(_np.linalg.norm(A - _np.asarray(u_vectors).T @ _np.asarray(v_vectors)) / norm_A) - _np.log10(error_rel) >= 5:
@@ -130,7 +130,7 @@ def ACAPP_with_assembly(rows, cols, assembler, singular_matrix, epsilon = 0.1, v
     v_vectors = []
 
     # Stopping criterion:
-    sum_uv_norm_square = 0
+    Fnorm_square = 0
     
     while True:
         aux = 0
@@ -209,8 +209,14 @@ def ACAPP_with_assembly(rows, cols, assembler, singular_matrix, epsilon = 0.1, v
         v = v_vectors[-1]
         norm_u = _np.linalg.norm(u)
         norm_v = _np.linalg.norm(v)
-        sum_uv_norm_square += norm_u**2 * norm_v**2
-        error_rel = norm_u * norm_v / _np.sqrt(sum_uv_norm_square)
+        Fnorm_square += norm_u**2 * norm_v**2
+        # NEW PAPER ============
+        aux = 0
+        for index in range(k - 1):
+            aux += _np.vdot(u_vectors[index], u) * _np.vdot(v_vectors[index], v)
+        Fnorm_square += 2 * _np.real(aux)
+        # ============ NEW PAPER
+        error_rel = norm_u * norm_v / _np.sqrt(Fnorm_square)
         if error_rel <= epsilon or _np.sum(mask_col) == m or _np.sum(mask_row) == n: # Epsilon reached or rank completed (checked entire matrix)
             # print("Reached Epsilon")
             break

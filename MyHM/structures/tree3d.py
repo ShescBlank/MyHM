@@ -217,7 +217,7 @@ class Tree3D:
             node_3d.stats["compression_time"] = tf_compression - t0_compression
             node_3d.stats["full_storage"] = len(rows) * len(cols)
 
-    def add_compressed_matrix_numba(self, info, info_class, numba_assembler, epsilon):
+    def add_compressed_matrix_numba(self, info, info_class, numba_assembler, numba_compressor, epsilon):
         """
         Adds the compressed matrix using a custom assembler (does not require the full matrix)
         """
@@ -240,14 +240,14 @@ class Tree3D:
         
         # Compilation:
         t0 = time()
-        parallel_compression_numba = wrapper_compression_numba(nodes_rows, info_class, numba_assembler, self.dtype)
+        parallel_compression_numba = wrapper_compression_numba(nodes_rows, info_class, numba_assembler, numba_compressor, self.dtype)
         # parallel_compression_nadm_numba, parallel_compression_adm_numba = wrapper_compression_numba(nodes_rows, info_class, numba_assembler, self.dtype)
         tf = time()
         print("Compilation time:", tf-t0, "s")
         # print(numba_assembler.signatures)
 
         # Call to njit function:
-        results_nadm, results_adm = parallel_compression_numba(nodes_rows, nodes_cols, info, numba_assembler, n_nadm, epsilon, self.dtype)
+        results_nadm, results_adm = parallel_compression_numba(nodes_rows, nodes_cols, info, numba_assembler, numba_compressor, n_nadm, epsilon, self.dtype)
         # results_nadm = parallel_compression_nadm_numba(nodes_rows[:n_nadm], nodes_cols[:n_nadm], info, numba_assembler, self.dtype)
         # results_adm =  parallel_compression_adm_numba(nodes_rows[n_nadm:], nodes_cols[n_nadm:], info, numba_assembler, epsilon, self.dtype)
 
