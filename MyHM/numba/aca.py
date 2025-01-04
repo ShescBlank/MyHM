@@ -147,13 +147,19 @@ def ACAPP_CCC_numba(rows, cols, info, numba_assembler, epsilon=0.1, dtype=_np.co
     k = 0
 
     # CCC:
-    L = m + n
-    random_pivots = _np.random.choice(m*n, L, replace=False)
-    random_rows = random_pivots // n
-    random_cols = random_pivots % n
+    # === Random:
+    # L = m + n
+    # extra_pivots = _np.random.choice(m*n, L, replace=False)
+    # extra_rows = extra_pivots // n
+    # extra_cols = extra_pivots % n
+    # === Diagonal:
+    L = max(m,n)
+    extra_rows = _np.arange(L) % m
+    extra_cols = _np.arange(L) % n # -(_np.arange(L) % n) - 1
+    # ===
     e = _np.empty(L, dtype=dtype)
     for i in range(L):
-        e[i] = numba_assembler(rows[random_rows[i:i+1]], cols[random_cols[i:i+1]], info, dtype)[0,0]
+        e[i] = numba_assembler(rows[extra_rows[i:i+1]], cols[extra_cols[i:i+1]], info, dtype)[0,0]
 
     # Stopping criterion:
     Fnorm_square = 0
@@ -208,7 +214,7 @@ def ACAPP_CCC_numba(rows, cols, info, numba_assembler, epsilon=0.1, dtype=_np.co
         
         # Update random pivots: 
         for i in range(L):
-            e[i] -= u[random_rows[i]] * v[random_cols[i]]
+            e[i] -= u[extra_rows[i]] * v[extra_cols[i]]
         
         # Get next i_star:
         u_abs = _np.abs(u_vectors[-1])
@@ -244,9 +250,10 @@ def ACAPP_CCC_numba(rows, cols, info, numba_assembler, epsilon=0.1, dtype=_np.co
         if error_rel <= epsilon:
             # CCC:
             if _np.sqrt(_np.mean(_np.abs(e**2)) * m * n) / _np.sqrt(Fnorm_square) <= epsilon:
+                # Geometric step?
                 break
             else:
-                i_star = random_rows[_np.argmax(_np.abs(e))]
+                i_star = extra_rows[_np.argmax(_np.abs(e))]
                 if mask_col[i_star] == True: # Esto generalmente pasa por pequeños errores de redondeo y e ya fue completamente revisado
                     i_star = _np.random.choice(_np.arange(m)[~mask_col])
 
@@ -446,13 +453,19 @@ def ACAPlusPP_CCC_numba(rows, cols, info, numba_assembler, epsilon=0.1, dtype=_n
     k = 0
 
     # CCC:
-    L = m + n
-    random_pivots = _np.random.choice(m*n, L, replace=False)
-    random_rows = random_pivots // n
-    random_cols = random_pivots % n
+    # === Random:
+    # L = m + n
+    # extra_pivots = _np.random.choice(m*n, L, replace=False)
+    # extra_rows = extra_pivots // n
+    # extra_cols = extra_pivots % n
+    # === Diagonal:
+    L = max(m,n)
+    extra_rows = _np.arange(L) % m
+    extra_cols = _np.arange(L) % n # -(_np.arange(L) % n) - 1
+    # ===
     e = _np.empty(L, dtype=dtype)
     for i in range(L):
-        e[i] = numba_assembler(rows[random_rows[i:i+1]], cols[random_cols[i:i+1]], info, dtype)[0,0]
+        e[i] = numba_assembler(rows[extra_rows[i:i+1]], cols[extra_cols[i:i+1]], info, dtype)[0,0]
 
     # Stopping criterion:
     Fnorm_square = 0
@@ -510,7 +523,7 @@ def ACAPlusPP_CCC_numba(rows, cols, info, numba_assembler, epsilon=0.1, dtype=_n
 
         # Update random pivots: 
         for i in range(L):
-            e[i] -= a[random_rows[i]] * b[random_cols[i]]
+            e[i] -= a[extra_rows[i]] * b[extra_cols[i]]
 
         # Check if compression is still viable:
         if len(a_vectors) * m + len(b_vectors) * n > m * n: # TODO:
@@ -540,7 +553,7 @@ def ACAPlusPP_CCC_numba(rows, cols, info, numba_assembler, epsilon=0.1, dtype=_n
             if _np.sqrt(_np.mean(_np.abs(e**2)) * m * n) / _np.sqrt(Fnorm_square) <= epsilon:
                 break
             else:
-                j_ref = random_cols[_np.argmax(_np.abs(e))]
+                j_ref = extra_cols[_np.argmax(_np.abs(e))]
                 if P_cols[j_ref] == True:
                     j_ref = _np.random.choice(_np.arange(n)[~P_cols])
                 a_ref = get_a(j_ref, rows, cols, info, dtype, a_vectors, b_vectors, k, numba_assembler)
@@ -553,8 +566,14 @@ def ACAPlusPP_CCC_numba(rows, cols, info, numba_assembler, epsilon=0.1, dtype=_n
         # Update reference elements:
         a_ref = a_ref - (a * b[j_ref])
         b_ref = b_ref - (a[i_ref] * b)
-        if i_ref == i_star and j_ref == j_star: # TODO: Esta parte no estoy seguro que sea así..., el comportamiento aleatorio no me gusta
-            j_ref = _np.random.choice(_np.arange(n)[~P_cols])
+        if i_ref == i_star and j_ref == j_star:
+            # === Random selection of j_ref:
+            # j_ref = _np.random.choice(_np.arange(n)[~P_cols])
+            # === Selection from extra pivots:
+            j_ref = extra_cols[_np.argmax(_np.abs(e))]
+            if P_cols[j_ref] == True:
+                j_ref = _np.random.choice(_np.arange(n)[~P_cols])
+            # ===
             a_ref = get_a(j_ref, rows, cols, info, dtype, a_vectors, b_vectors, k, numba_assembler)
             a_ref_abs = _np.abs(a_ref)
             a_ref_abs[P_rows] = _np.max(a_ref_abs) + 1
