@@ -4,7 +4,8 @@ __pycache__/
 /Results/
 /Inputs/
 /vsie/
-/VSIE_notebook.ipynb
-/notebook_skull_slab.ipynb
 /Voxels data/
 /Experiments/
+
+# Cluster scripts:
+/Cluster/
