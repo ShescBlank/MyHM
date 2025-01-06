@@ -40,18 +40,18 @@ def points_to_3D(nx, ny, nz, bbox, vox_size, points):
         return
     return space3D, mask_ones3D, mask_to_3d
 
-def data_grad(dom, dom_density, density_dx, density_dy, density_dz):
+def data_grad(dom, dom_density, density_dx, density_dy, density_dz, ext_density):
     num_voxels = dom.shape[0]
     grad_alpha = np.zeros((num_voxels, 3), dtype=np.float64)
-    grad_alpha[:, 0] = -density_dx / (dom_density)**2
-    grad_alpha[:, 1] = -density_dy / (dom_density)**2
-    grad_alpha[:, 2] = -density_dz / (dom_density)**2
+    grad_alpha[:, 0] = -ext_density*density_dx / (dom_density)**2
+    grad_alpha[:, 1] = -ext_density*density_dy / (dom_density)**2
+    grad_alpha[:, 2] = -ext_density*density_dz / (dom_density)**2
 
     return grad_alpha
 
 def data_physical_functions(wavenumber, ext_density, dom_wave, dom_density, dom):
-    alpha = 1/dom_density - 1/ext_density
-    beta = dom_wave**2/dom_density - wavenumber**2/ext_density
+    alpha = ext_density/dom_density - 1
+    beta = ext_density*dom_wave**2/dom_density - wavenumber**2
     
     return alpha, beta
 
@@ -68,15 +68,15 @@ def build_system_VSIE(points, densities, speeds):
     mins = np.min(points, axis=1)
     maxs = np.max(points, axis=1)
     bbox = np.array([mins - (vox_size/2), maxs + (vox_size/2)]).T
-    print("Bounding box:", bbox)
+    print("Bounding box:")
+    print(bbox)
 
     # Cantidad de voxels si la bbox estuviera llena:
     # nx, ny, nz = np.ceil((bbox[:,1] - bbox[:,0]) / vox_size) # TODO: decidir con cuál me quedo
     nx, ny, nz = np.round((bbox[:,1] - bbox[:,0]) / vox_size)
     print("(nx, ny, nz):",((bbox[:,1] - bbox[:,0]) / vox_size)[0], ((bbox[:,1] - bbox[:,0]) / vox_size)[1], ((bbox[:,1] - bbox[:,0]) / vox_size)[2])
     nx, ny, nz = int(nx), int(ny), int(nz)
-    print(f"Voxels en cada dimensión: {nx} * {ny} * {nz} = {nx*ny*nz}")
-    print("=>", (nx, ny, nz))
+    print(f"Voxels in each dimension: {nx} * {ny} * {nz} = {nx*ny*nz}")
 
     # Ahora, ordenaremos los puntos, densidades y velocidades en un arreglo 3D:
     space3D, mask_ones3D, mask_to_3d = points_to_3D(nx, ny, nz, bbox, vox_size, points)
@@ -155,8 +155,9 @@ def build_system_VSIE(points, densities, speeds):
     # densities3D[(interior + surface)] # => densidades en 3D
     # speeds3D[(interior + surface)] # => velocidades en 3D
     
-    # densities3D[~(interior + surface)] = 1 # TODO: Agregar?
-    # speeds3D[~(interior + surface)] = 1
+    # Para evitar warnings de divisiones por cero:
+    densities3D[~(interior + surface)] = 1
+    speeds3D[~(interior + surface)] = 1
 
     # Definición de características físicas:
     wavespeed = 1500                  # Exterior wavespeed
@@ -173,7 +174,7 @@ def build_system_VSIE(points, densities, speeds):
     int_w = np.array([dx*dy*dz] * (interior.sum() + surface.sum()))
     int_grid = space3D[interior + surface]
     int_grad_alpha = data_grad(int_grid, densities3D[(interior + surface)], gradients[0][(interior + surface)],
-                            gradients[1][(interior + surface)], gradients[2][(interior + surface)])
+                               gradients[1][(interior + surface)], gradients[2][(interior + surface)], rho_0)
     int_alpha3D, int_beta3D = data_physical_functions(kappa, rho_0, W, densities3D, int_grid)
     int_alpha, int_beta = int_alpha3D[(interior+surface)], int_beta3D[(interior+surface)]
 

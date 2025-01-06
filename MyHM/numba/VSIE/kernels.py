@@ -345,7 +345,7 @@ def cross_ad_double_layer_partial_nb(rows, cols, info, dtype=_np.complex128):
 
     return c_matrix
 
-def mass_matrix(dom, alpha, rho):
+def mass_matrix(dom, alpha):
     """
     Mass Matrix in the volume integral formulation.
     Values only in main diagonal (Sparse matrix).
@@ -357,8 +357,6 @@ def mass_matrix(dom, alpha, rho):
         The shape is N x 3, with N the number of voxels.
     alpha: np.ndarray
         Values of alpha in the voxels.
-    rho: float
-        Value of the exterior density.
 
     Returns
     --------
@@ -372,6 +370,6 @@ def mass_matrix(dom, alpha, rho):
     # a_matrix = _np.zeros((n_vox,n_vox), dtype=_np.complex128)
     # _np.fill_diagonal(a_matrix, alpha + 1/rho)
 
-    a_matrix = diags_array(alpha + 1/rho)
+    a_matrix = diags_array(alpha + 1)
 
     return a_matrix
