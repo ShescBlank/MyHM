@@ -23,8 +23,8 @@ Representative image of the compression ratios of a dense BEM matrix for differe
 </p>
 
 <p align="center">
-  <img src="Images/Storages.png", height=400>
-  <img src="Images/Relative_errors.png", height=400>
+  <img src="Images/Storages.png">
+  <img src="Images/Relative_errors.png">
 </p>
 <p align="center">
 Example of storage results and relative compression errors for different epsilon values.
