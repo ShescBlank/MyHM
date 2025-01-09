@@ -9,14 +9,14 @@ This code is part of my Master's work at the Pontificia Universidad Católica de
 The entire repository is under development and is updated on a regular basis.
 
 <p align="center">
-  <img src="https://github.com/ShescBlank/MyHM/blob/main/Images/bboxes.gif">
+  <img src="Images/bboxes.gif">
 </p>
 <p align="center">
 Example of application of hierarchical matrices on ribs
 </p>
 
 <p align="center">
-  <img src="https://github.com/ShescBlank/MyHM/blob/main/Images/compression_image_0.5_edit.gif">
+  <img src="Images/compression_image_0.5_edit.gif">
 </p>
 <p align="center">
 Representative image of the compression ratios of a dense BEM matrix for different epsilon values
