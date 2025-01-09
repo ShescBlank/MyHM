@@ -27,7 +27,7 @@ Representative image of the compression ratios of a dense BEM matrix for differe
   <img src="Images/Relative_errors.png">
 </p>
 <p align="center">
-Example of storage results and relative compression errors for different epsilon values.
+Example of compression storage results and relative errors in matvec operations for different epsilon values.
 </p>
 
 It should be noted that the relative errors image is related to a study of the behaviour of four different versions of the Adaptive Cross Approximation (ACA) algorithm with respect to early convergence problems in double layer operators for simulations with heterogeneous materials.
