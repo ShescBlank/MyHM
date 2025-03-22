@@ -4,8 +4,24 @@ from scipy.sparse import lil_matrix
 # https://www.epfl.ch/labs/anchp/wp-content/uploads/2018/10/lecture4-slides.pdf
 # https://web.archive.org/web/20060903235945id_/http://esl.eng.ohio-state.edu/~csg/papers/79.pdf
 def ACAPP(A, epsilon = 0.1, exact_error=False):
-    # Saqué variables extras, saqué I,J, puse -1 en los abs, quité los copy y cambié una de las condiciones de salida
-    # R = _np.copy(A)
+    """
+    Standard Adaptive Cross Approximation (ACA) algorithm with 
+    partial pivoting for matrix compression.
+    Uses the entire matrix to compress.
+
+    Args:
+        A (np.ndarray): The matrix to compress.
+        epsilon (float, optional): Error value indicating when to stop 
+            compressing. Defaults to 0.1.
+        exact_error (bool, optional): Indicates whether to use the exact error 
+            instead of the approximation. Defaults to False.
+
+    Returns:
+        U (np.ndarray), V (np.ndarray): Low-rank approximation vectors of the 
+            matrix (U.T @ V ~= A). Also, the first argument can be the whole 
+            matrix and the second argument can be None (when the compression is
+            not better than using the whole matrix).
+    """
     R = A
     m, n = R.shape
     mask_row = _np.zeros(n, dtype=bool)
@@ -116,8 +132,28 @@ def ACAPP(A, epsilon = 0.1, exact_error=False):
     return _np.array(u_vectors), _np.array(v_vectors)
 
 def ACAPP_with_assembly(rows, cols, assembler, singular_matrix, epsilon = 0.1, verbose=False, dtype=_np.complex128):
-    # rows = _np.asarray(rows)
-    # cols = _np.asarray(cols)
+    """
+    Standard Adaptive Cross Approximation (ACA) algorithm with 
+    partial pivoting for matrix compression.
+    Assembles the rows and columns of the matrix as it needs them.
+
+    Args:
+        rows (np.ndarray): Rows to be compressed from the underlying matrix.
+        cols (np.ndarray): Columns to be compressed from the underlying matrix.
+        assembler (function): Function that assembles a specific part of the 
+            underlying matrix from an array of rows and columns.
+        singular_matrix (scipy.sparse): To be removed.
+        epsilon (float, optional): Error value indicating when to stop 
+            compressing. Defaults to 0.1.
+        verbose (bool, optional): Whether to print additional results. Defaults to False.
+        dtype (_type_, optional): Data type to be used. Defaults to np.complex128.
+
+    Returns:
+        U (np.ndarray), V (np.ndarray): Low-rank approximation vectors of the 
+            matrix (U.T @ V ~= A). Also, the first argument can be the whole 
+            matrix and the second argument can be None (when the compression is
+            not better than using the whole matrix).
+    """
 
     m, n = len(rows), len(cols)
     assembled_values = lil_matrix((m, n), dtype=dtype)
