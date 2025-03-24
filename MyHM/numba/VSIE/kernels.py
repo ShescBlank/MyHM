@@ -345,7 +345,7 @@ def cross_ad_double_layer_partial_nb(rows, cols, info, dtype=_np.complex128):
 
     return c_matrix
 
-def mass_matrix(dom, alpha):
+def mass_matrix_sp(dom, alpha):
     """
     Mass Matrix in the volume integral formulation.
     Values only in main diagonal (Sparse matrix).

@@ -160,11 +160,11 @@ def build_system_VSIE(points, densities, speeds):
     speeds3D[~(interior + surface)] = 1
 
     # Definición de características físicas:
-    wavespeed = 1500                  # Exterior wavespeed
+    wavespeed = 1500 # 1482.3                  # Exterior wavespeed
     frec = 500000                     # Exterior frequency
     lambda_ext = wavespeed / frec     # Exterior wavelength
     kappa = 2 * np.pi / lambda_ext    # Exterior wavenumber
-    rho_0 = 1000                      # Exterior density
+    rho_0 = 1000 # 994.035                      # Exterior density
     W = 2 * np.pi * frec / speeds3D   # Interior wavenumber
 
 
