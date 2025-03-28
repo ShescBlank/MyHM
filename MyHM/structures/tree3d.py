@@ -35,7 +35,8 @@ class Node3D:
         self.leaf = leaf
         self.children = _np.empty((8,8), dtype=Node3D) # Type: numpy.ndarray
 
-        # New:
+        # New: TODO: remove this and replace it with NumbaNode -> self.compression = None
+        # Remove methods that are not used anymore (matvec_compressed with vector_segment, get_matrix y cosas cercanas)
         self.matrix_block = None   # Type: _np.array
         self.u_vectors = None      # Type: _np.array
         self.v_vectors = None      # Type: _np.array
@@ -43,7 +44,7 @@ class Node3D:
         self.stats = {
             "compression_storage": 0,
             "full_storage": 0,
-            "compression_time": 0,
+            "compression_time": 0, # TODO:
             # "matvec_time": 0, # TODO:
         }
 
@@ -55,6 +56,8 @@ class Tree3D:
         self.max_element_diameter = max(octree1.max_element_diameter, octree2.max_element_diameter)
         self.adm_leaves = []
         self.nadm_leaves = []
+        self.nb_adm_leaves = []
+        self.nb_nadm_leaves = []
         self.dtype = dtype
         self.stats = {
             "number_of_nodes": 1,
@@ -66,6 +69,13 @@ class Tree3D:
 
     def generate_adm_tree(self, adm_fun=admissibility):
         nodes_3d_to_add = [self.root]
+
+        from MyHM.numba import wrapper_numba_node3d
+        NumbaNode3D = wrapper_numba_node3d(
+            self.root.node1.dof_indices.dtype,
+            self.root.node2.dof_indices.dtype,
+            self.dtype
+        )
 
         while nodes_3d_to_add:
             node_3d = nodes_3d_to_add.pop()
@@ -93,6 +103,7 @@ class Tree3D:
                     #     self.stats["number_of_not_adm_leaves"] += 1
                     if adm:
                         self.adm_leaves.append(new_node_3d)
+                        self.nb_adm_leaves.append(NumbaNode3D(new_node_3d.node1.dof_indices, new_node_3d.node2.dof_indices))
                         self.stats["number_of_leaves"] += 1
                         self.stats["number_of_adm_leaves"] += 1
                     else:
@@ -101,9 +112,14 @@ class Tree3D:
                         elif new_node_3d.level == self.max_depth:
                             new_node_3d.leaf = True
                             self.nadm_leaves.append(new_node_3d)
+                            self.nb_nadm_leaves.append(NumbaNode3D(new_node_3d.node1.dof_indices, new_node_3d.node2.dof_indices))
                             self.stats["number_of_leaves"] += 1
                             self.stats["number_of_not_adm_leaves"] += 1
                     self.stats["number_of_nodes"] += 1
+        
+        from numba.typed import List
+        self.nb_adm_leaves = List(self.nb_adm_leaves)
+        self.nb_nadm_leaves = List(self.nb_nadm_leaves)
 
     # New:
     def add_matrix(self, A):
@@ -217,7 +233,7 @@ class Tree3D:
             node_3d.stats["compression_time"] = tf_compression - t0_compression
             node_3d.stats["full_storage"] = len(rows) * len(cols)
 
-    def add_compressed_matrix_numba(self, info, info_class, numba_assembler, numba_compressor, epsilon):
+    def add_compressed_matrix_numba(self, info, numba_assembler, numba_compressor, epsilon):
         """
         Adds the compressed matrix using a custom assembler (does not require the full matrix)
         """
@@ -240,8 +256,8 @@ class Tree3D:
         
         # Compilation:
         t0 = time()
-        parallel_compression_numba = wrapper_compression_numba(nodes_rows, info_class, numba_assembler, numba_compressor, self.dtype)
-        # parallel_compression_nadm_numba, parallel_compression_adm_numba = wrapper_compression_numba(nodes_rows, info_class, numba_assembler, self.dtype)
+        parallel_compression_numba = wrapper_compression_numba(nodes_rows, nodes_cols, info, numba_assembler, numba_compressor, self.dtype)
+        # parallel_compression_nadm_numba, parallel_compression_adm_numba = wrapper_compression_numba(nodes_rows, info, numba_assembler, self.dtype)
         tf = time()
         print("Compilation time:", tf-t0, "s")
         # print(numba_assembler.signatures)
@@ -268,6 +284,26 @@ class Tree3D:
                 node_3d.stats["compression_storage"] = _np.prod(node_3d.u_vectors.shape) + _np.prod(node_3d.v_vectors.shape)
             node_3d.stats["full_storage"] = len(node_3d.node1.dof_indices) * len(node_3d.node2.dof_indices)
 
+    def add_compressed_matrix_numba2(self, info, numba_assembler, numba_compressor, epsilon):
+        """
+        Adds the compressed matrix using a custom assembler (does not require the full matrix)
+        """
+        from MyHM.numba import wrapper_compression_numba2
+        from time import time
+        
+        # Compilation:
+        t0 = time()
+        parallel_compression_numba = wrapper_compression_numba2(self.nb_adm_leaves, info, numba_assembler, numba_compressor, self.dtype)
+        tf = time()
+        print("Compilation time:", tf-t0, "s")
+        # print(numba_assembler.signatures)
+
+        # Call to njit function:
+        parallel_compression_numba(self.nb_adm_leaves, self.nb_nadm_leaves, info, numba_assembler, numba_compressor, epsilon, self.dtype)
+
+        # TODO: save stats in nodes (en nodos base o en nodos numba?)
+        # Estoy pensando en no guardar los tiempos y calcular los almacenamientos cuando lo necesite
+
     def clear_compression(self):
         """
         Removes all data associated to the matrix compression
@@ -285,6 +321,21 @@ class Tree3D:
             else:
                 if node_3d.level < self.max_depth:
                     nodes_3d_to_check.extend(node_3d.children[node_3d.children != None].flatten())
+
+    def clear_compression_nb(self):
+        """
+        Removes all data associated to the matrix compression in the numba nodes
+        """
+        for leaf in self.nb_adm_leaves:
+            leaf.matrix_block = None
+            leaf.u_vectors = None
+            leaf.v_vectors = None
+        for leaf in self.nb_nadm_leaves:
+            leaf.matrix_block = None
+            leaf.u_vectors = None
+            leaf.v_vectors = None
+
+        # TODO: clear stats in numba nodes
 
     # def add_compressed_matrix_mp(self, compression_function, device_interface, boundary_operator, parameters, epsilon=1e-3, verbose=False):
     #     from MyHM.assembly import singular_assembler_sparse as singular_assembler 
@@ -434,9 +485,24 @@ class Tree3D:
                     nodes_3d_to_check.extend(node_3d.children[node_3d.children != None].flatten())
         return result_vector
 
-    def dot(self, b):
+    def dot_python(self, b):
+        """ Matvec operation of tree with vector b (Python version) """
         m = len(self.root.node1.points)
         result_vector = _np.zeros(m, dtype=self.dtype)
+
+        # for node_3d in self.nadm_leaves:
+        #     rows = node_3d.node1.dof_indices
+        #     cols = node_3d.node2.dof_indices
+        #     result_vector[rows] += (node_3d.matrix_block @ b[cols])
+        # for node_3d in self.adm_leaves:
+        #     rows = node_3d.node1.dof_indices
+        #     cols = node_3d.node2.dof_indices
+        #     if node_3d.v_vectors is None:
+        #         result_vector[rows] += (node_3d.matrix_block @ b[cols])
+        #     else:
+        #         result_vector[rows] += (node_3d.u_vectors.T @ (node_3d.v_vectors @ b[cols]))
+        # return result_vector
+
         nodes_3d_to_check = [self.root]
         while nodes_3d_to_check:
             node_3d = nodes_3d_to_check.pop()
@@ -447,13 +513,28 @@ class Tree3D:
                     if node_3d.v_vectors is None:
                         result_vector[rows] += (node_3d.matrix_block @ b[cols])
                     else:
-                        result_vector[rows] += (node_3d.u_vectors.T @ node_3d.v_vectors @ b[cols])
+                        result_vector[rows] += (node_3d.u_vectors.T @ (node_3d.v_vectors @ b[cols]))
                 else:
                     result_vector[rows] += (node_3d.matrix_block @ b[cols])
             else:
                 if node_3d.level < self.max_depth:
                     nodes_3d_to_check.extend(node_3d.children[node_3d.children != None].flatten())
         return result_vector
+
+    def dot_numba(self, b):
+        """ Matvec operation of tree with vector b (Parallel version with Numba) """
+        from MyHM.numba import numba_dot
+        from MyHM.numba import N_THREADS_DOT
+
+        # Length result:
+        m = len(self.root.node1.points)
+        # Number of threads:
+        n_threads = N_THREADS_DOT
+        return numba_dot(self.nb_adm_leaves, self.nb_nadm_leaves, self.dtype(b), m, self.dtype, n_threads)
+
+    def dot(self, b):
+        # return self.dot_python(b)
+        return self.dot_numba(b)
 
     def check_valid_tree(self, node_3d):
         # Se me ocurre quizás, cuando ya tenga hechas las listas de hojas (admisibles y no admisibles), 
@@ -473,7 +554,7 @@ class Tree3D:
 
     # New
     def calculate_compressed_matrix_storage(self, verbose=False):
-        total_storage_in_use = 0
+        total_storage_in_use = _np.int64(0)
         # aux = 0.0
 
         for node_3d in self.adm_leaves:
@@ -693,18 +774,18 @@ class Tree3D:
         sns.scatterplot(x=df["Size"], y=df["Ratio"], hue=df["Level"], ax=axes[2, 0])
         sns.scatterplot(x=df["Rank"], y=df["Ratio"], hue=df["Level"], ax=axes[2, 1])
 
-        # New y-axis to the right
-        for i in range(3):
-            ax2 = axes[i, i].twinx()
-            # sns.histplot(df["Size"], ax=ax2, bins=4, stat='count')
-            ax2.set_ylim(axes[i, i].get_ylim())
-            ax2.set_yticks(axes[i, i].get_yticks()) 
-            ax2.set_ylabel(axes[i, i].get_ylabel())
+        # Add new label (Size) to axis[0,0]
+        ax2 = axes[0, 0].twinx()
+        ax2.yaxis.tick_left()
+        ax2.yaxis.set_label_position("left")
+        ax2.set_ylabel(axes[2, 0].get_xlabel())
+        ax2.tick_params(axis='y',length=0)
+        ax2.set_yticklabels([])
 
-            axes[i, i].tick_params(axis='y',length=0)
-            axes[i, i].set_yticklabels([])
-            axes[i, i].set_ylabel("")
-        axes[0, 0].set_ylabel(axes[2, 0].get_xlabel())
+        # Move y-axis of the plots in the diagonal to the right
+        for i in range(3):
+            axes[i, i].yaxis.tick_right()
+            axes[i, i].yaxis.set_label_position("right")
 
         # Remove shared tick labels:
         axes[1, 0].set_xticklabels([])
@@ -716,9 +797,7 @@ class Tree3D:
         axes[0, 0].set_xlabel("")
         axes[1, 0].set_xlabel("")
         axes[1, 1].set_xlabel("")
-        # axes[1, 1].set_ylabel("")
         axes[2, 1].set_ylabel("")
-        # axes[2, 2].set_ylabel("")
 
         # Legends:
         fig.legend(*axes[1, 0].get_legend_handles_labels(), title='Level', bbox_to_anchor=axes[0, 2].get_position()) # loc='upper right'

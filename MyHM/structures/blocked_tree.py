@@ -19,9 +19,7 @@ class BlockedTree:
 
         if position is None:
             position = (0, 0)
-            blocks, factors = self[position]
-        else:
-            blocks, factors = self[position]
+        blocks, factors = self[position]
 
         if operator.shape != (self.row_dims[position[0]], self.col_dims[position[1]]):
             raise ValueError(f"dimension mismatch between operator shape {operator.shape} and block shape {(self.row_dims[position[0]], self.col_dims[position[1]])}")
