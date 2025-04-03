@@ -1,6 +1,9 @@
 import numpy as np
 from MyHM.numba.VSIE.info_class import Info_VSIE
 
+# TODO: Translate this file
+# TODO: Recheck the code
+
 def points_to_3D(nx, ny, nz, bbox, vox_size, points):
     # Primero, ordenemos los puntos respecto al orden 'x, y, z':
     indices = np.lexsort((points[2,:], points[1,:], points[0,:]))  
@@ -55,7 +58,7 @@ def data_physical_functions(wavenumber, ext_density, dom_wave, dom_density, dom)
     
     return alpha, beta
 
-def build_system_VSIE(points, densities, speeds):
+def build_system_VSIE(points, densities, speeds, frequency=None):
     print("Points shape:", points.shape)
 
     dx = np.min(np.abs(np.diff(points[0,:]))[np.abs(np.diff(points[0,:])) > 0]) # Este funciona en todos los casos
@@ -108,7 +111,6 @@ def build_system_VSIE(points, densities, speeds):
 
     # Comparamos que se estén considerando todos los puntos:
     print("Check if all points are considered in the masks.:", densities3D.nonzero()[0].shape, interior.sum() + surface.sum())
-    print()
 
     # Calculamos los gradientes: (técnica de extrapolación estudiada en el notebook notebook_skull_slab.ipynb)
     gradients = []
@@ -160,13 +162,15 @@ def build_system_VSIE(points, densities, speeds):
     speeds3D[~(interior + surface)] = 1
 
     # Definición de características físicas:
-    wavespeed = 1500 # 1482.3                  # Exterior wavespeed
-    frec = 500000                     # Exterior frequency
-    lambda_ext = wavespeed / frec     # Exterior wavelength
-    kappa = 2 * np.pi / lambda_ext    # Exterior wavenumber
-    rho_0 = 1000 # 994.035                      # Exterior density
-    W = 2 * np.pi * frec / speeds3D   # Interior wavenumber
+    wavespeed = 1500 # 1482.3                # Exterior wavespeed (water)
+    rho_0 = 1000 # 994.035                   # Exterior density (water)
+    if frequency is None:
+        frequency = 500000                   # Frequency (500kHz)
+    lambda_ext = wavespeed / frequency       # Exterior wavelength
+    kappa = 2 * np.pi / lambda_ext           # Exterior wavenumber
+    W = 2 * np.pi * frequency / speeds3D     # Interior wavenumber
 
+    print("Frequency:", frequency, "Hz")
 
     # Variables importantes:
     # rho_0 = rho_0
