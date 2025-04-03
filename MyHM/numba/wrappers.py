@@ -25,58 +25,55 @@ def wrapper_numba_node3d(np_int_rows_dtype, np_int_cols_dtype, np_values_dtype):
     
     return NumbaNode3D
 
-# # Versión separada en dos funciones:
-# def wrapper_compression_numba(list_dofs, info_class, numba_assembler, dtype):
-    
-#     @njit((typeof(list_dofs), typeof(list_dofs), info_class.class_type.instance_type, typeof(numba_assembler), typeof(dtype)), parallel=True, cache=True)
-#     def parallel_compression_nadm_numba(nodes_rows, nodes_cols, info, numba_assembler, dtype):
-#         # Las matrices singulares se suman afuera
-#         results = [np.empty((0,0), dtype=dtype)] * len(nodes_rows)
-#         # for index in prange(len(nodes_rows)):
-#         for index in prange(-len(nodes_rows), 0): # TODO: Usar esto para evitar el warning?
-#             rows = nodes_rows[index]
-#             cols = nodes_cols[index]
-#             results[index] = numba_assembler(rows, cols, info, dtype)
-#         return results
+def wrapper_compression_numba_debug(nodes_rows, nodes_cols, info, numba_assembler, numba_compressor, dtype):
 
-#     @njit((typeof(list_dofs), typeof(list_dofs), info_class.class_type.instance_type, typeof(numba_assembler), float64, typeof(dtype)), parallel=True, cache=True)
-#     def parallel_compression_adm_numba(nodes_rows, nodes_cols, info, numba_assembler, epsilon, dtype):
-#         results = [(np.empty((0,0), dtype=dtype), np.empty((0,0), dtype=dtype))] * len(nodes_rows)
-#         # for index in prange(len(nodes_rows)):
-#         for index in prange(-len(nodes_rows), 0): # TODO: Usar esto para evitar el warning?
-#             rows = nodes_rows[index]
-#             cols = nodes_cols[index]
-#             results[index] = ACAPP_numba(rows, cols, info, numba_assembler, epsilon, dtype)
-#         return results
-
-#     return parallel_compression_nadm_numba, parallel_compression_adm_numba
-
-# Versión todo junto:
-# def wrapper_compression_numba(list_dofs, info_class, numba_assembler, numba_compressor, dtype):
-def wrapper_compression_numba(nodes_rows, nodes_cols, info, numba_assembler, numba_compressor, dtype):
-
-    # @njit((typeof(list_dofs), typeof(list_dofs), info_class.class_type.instance_type, typeof(numba_assembler), typeof(numba_compressor), int64, float64, typeof(dtype)), parallel=True, cache=True)
     @njit((typeof(nodes_rows), typeof(nodes_cols), typeof(info), typeof(numba_assembler), typeof(numba_compressor), int64, float64, typeof(dtype)), parallel=True, cache=True)
     def parallel_compression_numba(nodes_rows, nodes_cols, info, numba_assembler, numba_compressor, n_nadm, epsilon, dtype):
+        # ''' Version without NumbaNodes '''
+        
+        # n_adm = len(nodes_rows) - n_nadm
+        # results_nadm = [np.empty((0,0), dtype=dtype)] * (n_nadm)
+        # results_adm = [(np.empty((0,0), dtype=dtype), np.empty((0,0), dtype=dtype))] * (n_adm)
+
+        # # for index in prange(len(nodes_rows)):
+        # for index in prange(-n_nadm, n_adm): # Uso esto para evitar un warning
+        #     rows = nodes_rows[index + n_nadm]
+        #     cols = nodes_cols[index + n_nadm]
+        #     # if index < n_nadm:
+        #     if index < 0: # Uso esto para evitar un warning
+        #         results_nadm[index] = numba_assembler(rows, cols, info, dtype)
+        #     else:
+        #         # results_adm[index - n_nadm] = numba_compressor(rows, cols, info, numba_assembler, epsilon, dtype)
+        #         results_adm[index] = numba_compressor(rows, cols, info, numba_assembler, epsilon, dtype)
+        # return results_nadm, results_adm
+
+        """
+        DEBUG VERSION: Calculates the compression and then forgets it, it only saves the space used.
+        """
+        # TODO: Modificado para calcular fácilemente la complejidad de almacenamiento
         n_adm = len(nodes_rows) - n_nadm
-        results_nadm = [np.empty((0,0), dtype=dtype)] * (n_nadm)
-        results_adm = [(np.empty((0,0), dtype=dtype), np.empty((0,0), dtype=dtype))] * (n_adm)
+        results_nadm = np.zeros(1, dtype=np.int64)
+        results_adm = np.zeros(n_adm, dtype=np.int64)
 
         # for index in prange(len(nodes_rows)):
         for index in prange(-n_nadm, n_adm): # Uso esto para evitar un warning
             rows = nodes_rows[index + n_nadm]
             cols = nodes_cols[index + n_nadm]
-            # if index < n_nadm:
-            if index < 0: # Uso esto para evitar un warning
-                results_nadm[index] = numba_assembler(rows, cols, info, dtype)
-            else:
-                # results_adm[index - n_nadm] = numba_compressor(rows, cols, info, numba_assembler, epsilon, dtype)
-                results_adm[index] = numba_compressor(rows, cols, info, numba_assembler, epsilon, dtype)
+            if index >= 0:
+                u, v = numba_compressor(rows, cols, info, numba_assembler, epsilon, dtype)
+                if v.shape[1] == 0:
+                    results_adm[index] = u.shape[0] * u.shape[1]
+                else:
+                    results_adm[index] = (u.shape[0] * u.shape[1]) + (v.shape[0] * v.shape[1])
         return results_nadm, results_adm
 
     return parallel_compression_numba
 
-def wrapper_compression_numba2(leaves, info, numba_assembler, numba_compressor, dtype):
+def wrapper_compression_numba(leaves, info, numba_assembler, numba_compressor, dtype):
+    """ 
+    Wrapper to compile and return the compression function.
+    Parallelised with Numba.
+    """
 
     @njit((typeof(leaves), typeof(leaves), typeof(info), typeof(numba_assembler), typeof(numba_compressor), float64, typeof(dtype)), parallel=True, cache=True)
     def parallel_compression_numba(adm_leaves, nadm_leaves, info, numba_assembler, numba_compressor, epsilon, dtype):

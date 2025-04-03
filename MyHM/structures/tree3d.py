@@ -4,19 +4,6 @@ from MyHM.structures.octree import Node, Octree
 from MyHM.structures.utils import admissibility
 from MyHM.structures.utils import tuple2index
 
-# def compress_node_mp(node_3d, compression_function, boundary_operator, parameters, singular_matrix, epsilon=1e-3, verbose=False):
-#     from MyHM.assembly import partial_dense_assembler as assembler
-#     from MyHM.assembly import singular_assembler_sparse as singular_assembler 
-
-#     rows = node_3d.node1.dof_indices
-#     cols = node_3d.node2.dof_indices
-#     meshgrid = _np.meshgrid(rows, cols, indexing="ij")
-#     if node_3d.adm:
-#         node_3d.u_vectors, node_3d.v_vectors = compression_function(rows, cols, assembler, boundary_operator, parameters, singular_matrix, epsilon=epsilon, verbose=verbose)
-#     else:
-#         node_3d.matrix_block = assembler(boundary_operator.descriptor, boundary_operator.domain, boundary_operator.dual_to_range, parameters, rows, cols)
-#         node_3d.matrix_block = _np.array(node_3d.matrix_block + singular_matrix[meshgrid[0], meshgrid[1]])
-
 # Tree 3D:
 class Node3D:
     pass
@@ -35,16 +22,15 @@ class Node3D:
         self.leaf = leaf
         self.children = _np.empty((8,8), dtype=Node3D) # Type: numpy.ndarray
 
-        # New: TODO: remove this and replace it with NumbaNode -> self.compression = None
-        # Remove methods that are not used anymore (matvec_compressed with vector_segment, get_matrix y cosas cercanas)
-        self.matrix_block = None   # Type: _np.array
-        self.u_vectors = None      # Type: _np.array
-        self.v_vectors = None      # Type: _np.array
-        self.vector_segment = None # Type: _np.array
+        # TODO: Decide whether to keep the compression information on both nodes or just leave the numba node.
+        self.matrix_block = None        # Type: _np.array
+        self.u_vectors = None           # Type: _np.array
+        self.v_vectors = None           # Type: _np.array
+        self.nb_compression_node = None # Type: NumbaNode3D
         self.stats = {
             "compression_storage": 0,
             "full_storage": 0,
-            "compression_time": 0, # TODO:
+            "compression_time": 0, # TODO: No lo estoy usando
             # "matvec_time": 0, # TODO:
         }
 
@@ -54,11 +40,11 @@ class Tree3D:
         self.max_depth = min(octree1.max_depth, octree2.max_depth)
         # self.min_block_size = octree.min_block_size
         self.max_element_diameter = max(octree1.max_element_diameter, octree2.max_element_diameter)
-        self.adm_leaves = []
-        self.nadm_leaves = []
-        self.nb_adm_leaves = []
-        self.nb_nadm_leaves = []
-        self.dtype = dtype
+        self.adm_leaves = []        # Quick access to admissible leaves of the tree
+        self.nadm_leaves = []       # Quick access to not admissible leaves of the tree
+        self.nb_adm_leaves = []     # Quick access to admissible leaves of the tree (numba nodes)
+        self.nb_nadm_leaves = []    # Quick access to not admissible leaves of the tree (numba nodes)
+        self.dtype = dtype          # Data type of values in tree (matrix.dtype)
         self.stats = {
             "number_of_nodes": 1,
             "number_of_leaves": 0,
@@ -91,8 +77,7 @@ class Tree3D:
                     adm = adm_fun(child1.bbox, child2.bbox, self.max_element_diameter)
                     new_node_3d = Node3D(parent=node_3d, node1=child1, node2=child2, level=child1.level, adm=adm, leaf=adm)
                     node_3d.children[i,j] = new_node_3d
-                    # If admissible, stop constructing the branch.
-                    # If not admissible, add to the stack (only if max_depth is not yet reached):
+                    
                     # TODO: Review this if statement when min_block_size is implemented (quité el if debido al cambio en la admisibilidad)
                     # If minimum size is not met, stop constructing the branch 
                     # if len(child1.points) < self.min_block_size or len(child2.points) < self.min_block_size:
@@ -101,18 +86,26 @@ class Tree3D:
                     #     self.nadm_leaves.append(new_node_3d)
                     #     self.stats["number_of_leaves"] += 1
                     #     self.stats["number_of_not_adm_leaves"] += 1
+
+                    # If admissible, stop constructing the branch.
                     if adm:
                         self.adm_leaves.append(new_node_3d)
-                        self.nb_adm_leaves.append(NumbaNode3D(new_node_3d.node1.dof_indices, new_node_3d.node2.dof_indices))
+                        nb_node = NumbaNode3D(new_node_3d.node1.dof_indices, new_node_3d.node2.dof_indices)
+                        self.nb_adm_leaves.append(nb_node)
+                        new_node_3d.nb_compression_node = nb_node
                         self.stats["number_of_leaves"] += 1
                         self.stats["number_of_adm_leaves"] += 1
+                    # If not admissible, add to the stack (only if max_depth is not yet reached):
                     else:
+                        # Max Depth check:
                         if new_node_3d.level < self.max_depth:
                             nodes_3d_to_add.append(new_node_3d)
                         elif new_node_3d.level == self.max_depth:
                             new_node_3d.leaf = True
                             self.nadm_leaves.append(new_node_3d)
-                            self.nb_nadm_leaves.append(NumbaNode3D(new_node_3d.node1.dof_indices, new_node_3d.node2.dof_indices))
+                            nb_node = NumbaNode3D(new_node_3d.node1.dof_indices, new_node_3d.node2.dof_indices)
+                            self.nb_nadm_leaves.append(nb_node)
+                            new_node_3d.nb_compression_node = nb_node
                             self.stats["number_of_leaves"] += 1
                             self.stats["number_of_not_adm_leaves"] += 1
                     self.stats["number_of_nodes"] += 1
@@ -233,12 +226,19 @@ class Tree3D:
             node_3d.stats["compression_time"] = tf_compression - t0_compression
             node_3d.stats["full_storage"] = len(rows) * len(cols)
 
-    def add_compressed_matrix_numba(self, info, numba_assembler, numba_compressor, epsilon):
+    def add_compressed_matrix_numba_debug(self, info, numba_assembler, numba_compressor, epsilon):
+        # """
+        # Adds the compressed matrix using a custom assembler (does not require the full matrix).
+        # Parallel implementation with Numba.
+        # """
         """
-        Adds the compressed matrix using a custom assembler (does not require the full matrix)
+        DEBUG VERSION: It makes the same calculations as normal compression but only saves the 
+        dimensions of the results. This version is used to study the complexity of hierarchical 
+        matrices without needing to store the compressed matrix itself.
         """
+        # TODO: Modificado para calcular fácilemente la complejidad de almacenamiento
         from numba.typed import List
-        from MyHM.numba import wrapper_compression_numba
+        from MyHM.numba import wrapper_compression_numba_debug
         from time import time
 
         # Get arguments:
@@ -256,53 +256,70 @@ class Tree3D:
         
         # Compilation:
         t0 = time()
-        parallel_compression_numba = wrapper_compression_numba(nodes_rows, nodes_cols, info, numba_assembler, numba_compressor, self.dtype)
-        # parallel_compression_nadm_numba, parallel_compression_adm_numba = wrapper_compression_numba(nodes_rows, info, numba_assembler, self.dtype)
+        parallel_compression_numba = wrapper_compression_numba_debug(nodes_rows, nodes_cols, info, numba_assembler, numba_compressor, self.dtype)
         tf = time()
         print("Compilation time:", tf-t0, "s")
         # print(numba_assembler.signatures)
 
         # Call to njit function:
         results_nadm, results_adm = parallel_compression_numba(nodes_rows, nodes_cols, info, numba_assembler, numba_compressor, n_nadm, epsilon, self.dtype)
-        # results_nadm = parallel_compression_nadm_numba(nodes_rows[:n_nadm], nodes_cols[:n_nadm], info, numba_assembler, self.dtype)
-        # results_adm =  parallel_compression_adm_numba(nodes_rows[n_nadm:], nodes_cols[n_nadm:], info, numba_assembler, epsilon, self.dtype)
 
         # Save results in tree:
         for i in range(len(self.nadm_leaves)):
+            # node_3d = self.nadm_leaves[i]
+            # node_3d.matrix_block = results_nadm[i]
+            # node_3d.stats["full_storage"] = len(node_3d.node1.dof_indices) * len(node_3d.node2.dof_indices)
+
             node_3d = self.nadm_leaves[i]
-            node_3d.matrix_block = results_nadm[i]
             node_3d.stats["full_storage"] = len(node_3d.node1.dof_indices) * len(node_3d.node2.dof_indices)
         for i in range(len(self.adm_leaves)):
+            # node_3d = self.adm_leaves[i]
+            # node_3d.u_vectors, node_3d.v_vectors = results_adm[i]
+            # if node_3d.v_vectors.shape[1] == 0:
+            #     node_3d.matrix_block = node_3d.u_vectors
+            #     node_3d.u_vectors = None
+            #     node_3d.v_vectors = None
+            #     node_3d.stats["compression_storage"] = _np.prod(node_3d.matrix_block.shape)
+            # else:
+            #     node_3d.stats["compression_storage"] = _np.prod(node_3d.u_vectors.shape) + _np.prod(node_3d.v_vectors.shape)
+            # node_3d.stats["full_storage"] = len(node_3d.node1.dof_indices) * len(node_3d.node2.dof_indices)
+
             node_3d = self.adm_leaves[i]
-            node_3d.u_vectors, node_3d.v_vectors = results_adm[i]
-            if node_3d.v_vectors.shape[1] == 0:
-                node_3d.matrix_block = node_3d.u_vectors
-                node_3d.u_vectors = None
-                node_3d.v_vectors = None
-                node_3d.stats["compression_storage"] = _np.prod(node_3d.matrix_block.shape)
-            else:
-                node_3d.stats["compression_storage"] = _np.prod(node_3d.u_vectors.shape) + _np.prod(node_3d.v_vectors.shape)
+            node_3d.stats["compression_storage"] = results_adm[i]
             node_3d.stats["full_storage"] = len(node_3d.node1.dof_indices) * len(node_3d.node2.dof_indices)
 
-    def add_compressed_matrix_numba2(self, info, numba_assembler, numba_compressor, epsilon):
+    def add_compressed_matrix_numba(self, info, numba_assembler, numba_compressor, epsilon):
         """
-        Adds the compressed matrix using a custom assembler (does not require the full matrix)
+        Adds the compressed matrix using a custom assembler (does not require the full matrix).
+        Parallel implementation with Numba.
         """
-        from MyHM.numba import wrapper_compression_numba2
+        from MyHM.numba import wrapper_compression_numba
         from time import time
         
         # Compilation:
         t0 = time()
-        parallel_compression_numba = wrapper_compression_numba2(self.nb_adm_leaves, info, numba_assembler, numba_compressor, self.dtype)
+        parallel_compression_numba = wrapper_compression_numba(self.nb_adm_leaves, info, numba_assembler, numba_compressor, self.dtype)
         tf = time()
         print("Compilation time:", tf-t0, "s")
         # print(numba_assembler.signatures)
 
         # Call to njit function:
         parallel_compression_numba(self.nb_adm_leaves, self.nb_nadm_leaves, info, numba_assembler, numba_compressor, epsilon, self.dtype)
-
-        # TODO: save stats in nodes (en nodos base o en nodos numba?)
-        # Estoy pensando en no guardar los tiempos y calcular los almacenamientos cuando lo necesite
+        
+        # Transfer compression information to the Node3D for compatibility reasons:
+        for leaf in self.adm_leaves:
+            if leaf.nb_compression_node.matrix_block is None:
+                leaf.u_vectors = leaf.nb_compression_node.u_vectors
+                leaf.v_vectors = leaf.nb_compression_node.v_vectors
+                leaf.stats["compression_storage"] = _np.prod(leaf.u_vectors.shape) + _np.prod(leaf.v_vectors.shape)
+            else:
+                leaf.matrix_block = leaf.nb_compression_node.matrix_block
+                leaf.stats["compression_storage"] = _np.prod(leaf.matrix_block.shape)
+            leaf.stats["full_storage"] = len(leaf.node1.dof_indices) * len(leaf.node2.dof_indices)
+        for leaf in self.nadm_leaves:
+            leaf.matrix_block = leaf.nb_compression_node.matrix_block
+            # leaf.stats["compression_storage"] = _np.prod(leaf.matrix_block.shape)
+            leaf.stats["full_storage"] = len(leaf.node1.dof_indices) * len(leaf.node2.dof_indices)
 
     def clear_compression(self):
         """
@@ -335,68 +352,6 @@ class Tree3D:
             leaf.u_vectors = None
             leaf.v_vectors = None
 
-        # TODO: clear stats in numba nodes
-
-    # def add_compressed_matrix_mp(self, compression_function, device_interface, boundary_operator, parameters, epsilon=1e-3, verbose=False):
-    #     from MyHM.assembly import singular_assembler_sparse as singular_assembler 
-    #     from MyHM.structures.utils import wrap_classes, unwrap_classes
-
-    #     from joblib import Parallel
-    #     from joblib import delayed
-
-    #     # from multiprocessing import Pool
-    #     # from itertools import repeat
-
-    #     # Obtain singular part:
-    #     singular_matrix = singular_assembler(device_interface, boundary_operator.descriptor, boundary_operator.domain, boundary_operator.dual_to_range, parameters) 
-
-    #     # Wrap classes to pickle:
-    #     prev_grid_datas = wrap_classes(boundary_operator)
-        
-    #     # # Joblib:
-    #     parallel_compression = delayed(compress_node_mp)
-    #     parallel_tasks_adm = [parallel_compression(self.adm_leaves[i], compression_function, boundary_operator, parameters, singular_matrix, epsilon, verbose) for i in range(len(self.adm_leaves))]
-    #     parallel_tasks_nadm = [parallel_compression(self.nadm_leaves[i], compression_function, boundary_operator, parameters, singular_matrix, epsilon, verbose) for i in range(len(self.nadm_leaves))]
-    #     with Parallel(n_jobs=-1, verbose=10) as parallel_pool:
-    #         parallel_pool(parallel_tasks_adm)
-    #         parallel_pool(parallel_tasks_nadm)
-
-    #     # # Multiprocessing:
-    #     # pool = Pool(1)
-    #     # pool.starmap(
-    #     #     compress_node_mp,
-    #     #     zip(
-    #     #         self.adm_leaves,
-    #     #         repeat(compression_function),
-    #     #         repeat(boundary_operator),
-    #     #         repeat(parameters),
-    #     #         repeat(singular_matrix),
-    #     #         repeat(epsilon),
-    #     #         repeat(verbose),
-    #     #     ),
-    #     # )
-
-    #     # Unwrap classes:
-    #     unwrap_classes(prev_grid_datas)
-
-    # New:
-    def get_matrix(self):
-        m = len(self.root.node1.points)
-        n = len(self.root.node2.points)
-        A = _np.zeros((m, n))
-        nodes_3d_to_check = [self.root]
-        while nodes_3d_to_check:
-            node_3d = nodes_3d_to_check.pop()
-            if node_3d.leaf:
-                rows = node_3d.node1.dof_indices
-                cols = node_3d.node2.dof_indices
-                mesh = _np.meshgrid(rows, cols, indexing="ij")
-                A[mesh[0], mesh[1]] = node_3d.matrix_block
-            else:
-                if node_3d.level < self.max_depth:
-                    nodes_3d_to_check.extend(node_3d.children[node_3d.children != None].flatten())
-        return A
-
     def get_matrix_from_compression(self):
         m = len(self.root.node1.points)
         n = len(self.root.node2.points)
@@ -420,70 +375,6 @@ class Tree3D:
                 if node_3d.level < self.max_depth:
                     nodes_3d_to_check.extend(node_3d.children[node_3d.children != None].flatten())
         return A
-
-    # New:
-    def add_vector(self, b):
-        nodes_3d_to_check = [self.root]
-        while nodes_3d_to_check:
-            node_3d = nodes_3d_to_check.pop()
-            if node_3d.leaf:
-                cols = node_3d.node2.dof_indices
-                node_3d.vector_segment = b[cols]
-            else:
-                if node_3d.level < self.max_depth:
-                    nodes_3d_to_check.extend(node_3d.children[node_3d.children != None].flatten())
-
-    # New:
-    def get_vector(self):
-        n = len(self.root.node2.points)
-        b = _np.zeros(n)
-        nodes_3d_to_check = [self.root]
-        while nodes_3d_to_check:
-            node_3d = nodes_3d_to_check.pop()
-            if node_3d.leaf:
-                cols = node_3d.node2.dof_indices
-                b[cols] = node_3d.vector_segment
-            else:
-                if node_3d.level < self.max_depth:
-                    nodes_3d_to_check.extend(node_3d.children[node_3d.children != None].flatten())
-        return b
-
-    # New:
-    def matvec(self):
-        m = len(self.root.node1.points)
-        result_vector = _np.zeros(m, dtype=self.dtype)
-        nodes_3d_to_check = [self.root]
-        while nodes_3d_to_check:
-            node_3d = nodes_3d_to_check.pop()
-            if node_3d.leaf:
-                rows = node_3d.node1.dof_indices
-                result_vector[rows] += (node_3d.matrix_block @ node_3d.vector_segment)
-            else:
-                if node_3d.level < self.max_depth:
-                    nodes_3d_to_check.extend(node_3d.children[node_3d.children != None].flatten())
-        return result_vector
-
-    # New
-    def matvec_compressed(self):
-        # TODO: Probar con un "from collections import deque" -> deque([lista]) -> deque.popleft() deque.extend()
-        m = len(self.root.node1.points)
-        result_vector = _np.zeros(m, dtype=self.dtype)
-        nodes_3d_to_check = [self.root]
-        while nodes_3d_to_check:
-            node_3d = nodes_3d_to_check.pop()
-            if node_3d.leaf:
-                rows = node_3d.node1.dof_indices
-                if node_3d.adm:
-                    if node_3d.v_vectors is None:
-                        result_vector[rows] += (node_3d.matrix_block @ node_3d.vector_segment)
-                    else:
-                        result_vector[rows] += (node_3d.u_vectors.T @ node_3d.v_vectors @ node_3d.vector_segment)
-                else:
-                    result_vector[rows] += (node_3d.matrix_block @ node_3d.vector_segment)
-            else:
-                if node_3d.level < self.max_depth:
-                    nodes_3d_to_check.extend(node_3d.children[node_3d.children != None].flatten())
-        return result_vector
 
     def dot_python(self, b):
         """ Matvec operation of tree with vector b (Python version) """
@@ -524,24 +415,41 @@ class Tree3D:
     def dot_numba(self, b):
         """ Matvec operation of tree with vector b (Parallel version with Numba) """
         from MyHM.numba import numba_dot
-        from MyHM.numba import N_THREADS_DOT
+        from numba import get_num_threads
 
         # Length result:
         m = len(self.root.node1.points)
         # Number of threads:
-        n_threads = N_THREADS_DOT
+        n_threads = get_num_threads()
         return numba_dot(self.nb_adm_leaves, self.nb_nadm_leaves, self.dtype(b), m, self.dtype, n_threads)
 
     def dot(self, b):
         # return self.dot_python(b)
         return self.dot_numba(b)
 
-    def check_valid_tree(self, node_3d):
-        # Se me ocurre quizás, cuando ya tenga hechas las listas de hojas (admisibles y no admisibles), 
-        # chequear que efectivamente estén todas las hojas del árbol en las listas.
-        pass
+    def check_valid_tree(self):
+        """ Checks if all the coordinates of the matrix are being considered in the leaves of the tree """
+        m = len(self.root.node1.dof_indices)
+        n = len(self.root.node2.dof_indices)
+        total = m * n
+        count = 0
+
+        for leaf in self.adm_leaves:
+            m_rows = len(leaf.node1.dof_indices)
+            n_cols = len(leaf.node2.dof_indices)
+            count += m_rows * n_cols
+        for leaf in self.nadm_leaves:
+            m_rows = len(leaf.node1.dof_indices)
+            n_cols = len(leaf.node2.dof_indices)
+            count += m_rows * n_cols
+
+        if count != total:
+            return False
+        else:
+            return True
 
     def check_singular_adm_leaves(self, singular_matrix):
+        # TODO: Remove this method
 
         for node_3d in self.adm_leaves:
             rows = node_3d.node1.dof_indices
