@@ -1,13 +1,11 @@
-from numba import njit
 import numpy as _np
-
-from numba import prange, get_thread_id
+from numba import njit, prange, get_thread_id, get_num_threads
 
 # TODO: fastmath=True in numba_dot and compression?
 
-# @njit(cache=True)
-@njit(cache=True, parallel=True)
-def numba_dot(adm_leaves, nadm_leaves, b, length, dtype, n_threads):
+@njit(parallel=True)
+def numba_dot(adm_leaves, nadm_leaves, b, length, dtype):
+    """ Parallel implementation of the dot product between a compressed matrix in a Tree3D and a vector """
     # =============================================================================================================
     # # Single thread version:
     # result_vector = _np.zeros(length, dtype=dtype)
@@ -24,6 +22,7 @@ def numba_dot(adm_leaves, nadm_leaves, b, length, dtype, n_threads):
 
     # =============================================================================================================
     # # Parallel version 1:
+    # n_threads = get_num_threads()
     # n_leaves = len(nadm_leaves) + len(adm_leaves)
     # result_vector = _np.zeros((n_threads, length), dtype=dtype)
     # for t in prange(n_threads):
@@ -49,6 +48,7 @@ def numba_dot(adm_leaves, nadm_leaves, b, length, dtype, n_threads):
 
     # =============================================================================================================
     # # Parallel version 2:
+    # n_threads = get_num_threads()
     # result_vector = _np.zeros((n_threads, length), dtype=dtype)
     # for leaf_id in prange(-len(nadm_leaves), len(adm_leaves)):
     #     thread_id = get_thread_id()
@@ -66,6 +66,7 @@ def numba_dot(adm_leaves, nadm_leaves, b, length, dtype, n_threads):
     # Parallel version 3:
     # The previous version had problems with oversubscription and the creation of too many intermediate results.
     # This version uses for loops to calculate matvecs and the results are calculated in-place.
+    n_threads = get_num_threads()
     result_vector = _np.zeros((n_threads, length), dtype=dtype)
     for leaf_id in prange(-len(nadm_leaves), len(adm_leaves)):
         thread_id = get_thread_id()
@@ -92,6 +93,7 @@ def numba_dot(adm_leaves, nadm_leaves, b, length, dtype, n_threads):
                 for i in range(m):
                     result_vector[thread_id, leaf.rows[i]] += leaf.u_vectors[l, i] * aux
 
+    # Reduce the results from all threads to a single thread:
     # return result_vector.sum(axis=0)
     for i in prange(length):
         for t in range(1, n_threads):
@@ -99,3 +101,24 @@ def numba_dot(adm_leaves, nadm_leaves, b, length, dtype, n_threads):
     return result_vector[0]
 
     # =============================================================================================================
+
+@njit(parallel=True)
+def full_numba_dot(A, b):
+    """ 
+    Parallel implementation of the dot product between a full matrix and a vector.
+    Is equivalent to A @ b, but uses numba to accelerate the process.
+    In general, it is faster than numpy for large matrices and arrays.
+    """
+    n_threads = get_num_threads()
+    m, n = A.shape
+    result_vector = _np.zeros((n_threads, m), dtype=A.dtype)
+    for i in prange(m):
+        thread_id = get_thread_id()
+        for j in range(n):
+            result_vector[thread_id, i] += A[i, j] * b[j]
+
+    # Reduce the results from all threads to a single thread:
+    for i in prange(m):
+        for t in range(1, n_threads):
+            result_vector[0, i] += result_vector[t, i]
+    return result_vector[0]

@@ -1,6 +1,5 @@
 import numpy as np
 from numba import njit, int64, float64, prange, typeof, int32
-from MyHM.numba.aca import ACAPP_numba
 
 from collections import OrderedDict
 from numba.experimental import jitclass

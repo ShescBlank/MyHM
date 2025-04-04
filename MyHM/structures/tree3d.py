@@ -415,13 +415,10 @@ class Tree3D:
     def dot_numba(self, b):
         """ Matvec operation of tree with vector b (Parallel version with Numba) """
         from MyHM.numba import numba_dot
-        from numba import get_num_threads
 
         # Length result:
         m = len(self.root.node1.points)
-        # Number of threads:
-        n_threads = get_num_threads()
-        return numba_dot(self.nb_adm_leaves, self.nb_nadm_leaves, self.dtype(b), m, self.dtype, n_threads)
+        return numba_dot(self.nb_adm_leaves, self.nb_nadm_leaves, self.dtype(b), m, self.dtype)
 
     def dot(self, b):
         # return self.dot_python(b)
@@ -854,16 +851,3 @@ class Tree3D:
         fig.update_layout(scene_camera=camera, title=None)
         fig.show()
         # fig.write_image("../Imágenes presentación/admisibilidad/04adm.png")
-
-if __name__ == "__main__":
-    import bempp.api
-    from MyHM.structures.octree import Octree
-    grid = bempp.api.shapes.sphere(h=0.2)
-    bbox = grid.bounding_box
-    vertices = grid.vertices
-    dof_indices = list(range(vertices.shape[1]))
-    octree = Octree(vertices.T, dof_indices, bbox, max_depth=4)
-    octree.generate_tree()
-    tree_3d = Tree3D(octree.root, octree.max_depth)
-    tree_3d.generate_adm_tree()
-    print("Working...")
